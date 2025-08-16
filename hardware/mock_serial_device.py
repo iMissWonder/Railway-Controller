@@ -36,7 +36,7 @@ class MockSerialDevice:
       - 遥测 FOR 为牛顿（可简化）
     """
     def __init__(self, ctrl_port: str, telem_port: Optional[str] = None,
-                 baudrate: int = 115200, logger=None):
+                 baudrate: int = 115200, logger=None, telemetry_interval: float = 0.1):
         self.ctrl = SerialInterface(ctrl_port, baudrate, timeout=0.02, logger=logger)
         self.telem = None
         if telem_port:
@@ -56,6 +56,8 @@ class MockSerialDevice:
 
         # 急停标志
         self._estop = False
+        # 遥测间隔（秒）
+        self._telem_interval = float(telemetry_interval)
 
     # ——— 初始化XY分布（上排 1/3/5/7/9/11， 下排 2/4/6/8/10/12）———
     def _default_xy(self):
@@ -68,11 +70,20 @@ class MockSerialDevice:
         for k in range(6):
             top_y = upper_y[k]
             bot_y = top_y - gaps[k] + random.uniform(-30, 30)
-            # 上排(奇数id-1): 0,2,4,6,8,10
             xy.append((x_positions[2*k],   top_y))
-            # 下排(偶数id-1): 1,3,5,7,9,11
             xy.append((x_positions[2*k+1], bot_y))
-        return xy  # 长度12，索引0..11
+
+        # 将坐标整体平移，使 1 号腿（索引0）成为原点 (0,0)
+        x0, y0 = xy[0]
+        shift_x = -x0
+        shift_y = -y0
+        # 添加小扰动（±5 mm），并将 Y 方向取反（向下为正）
+        xy_shifted = []
+        for x, y in xy:
+            nx = x + shift_x + random.uniform(-5.0, 5.0)
+            ny = -(y + shift_y) + random.uniform(-5.0, 5.0)
+            xy_shifted.append((nx, ny))
+        return xy_shifted  # 长度12，索引0..11
 
     # ——— 对外入口 ———
     def start(self):
@@ -81,7 +92,7 @@ class MockSerialDevice:
         if self.telem is not self.ctrl:
             self.telem.open()
 
-        print(f"[MockDevice] 控制口: {self.ctrl.port}@{self.ctrl.baudrate}  | 遥测口: {self.telem.port}@{self.telem.baudrate}")
+        print(f"[MockDevice] 控制口: {self.ctrl.port}@{self.ctrl.baudrate}  | 遥测口: {self.telem.port}@{self.telem.baudrate}  | telem-interval: {self._telem_interval}s")
         t = threading.Thread(target=self._telemetry_loop, daemon=True, name="mock_telem")
         t.start()
         try:
@@ -190,18 +201,15 @@ class MockSerialDevice:
                     z_mm = self._z_dm[i] / 10.0
                     self.telem.write(f"Z,{i+1},{z_mm:.1f}\n".encode("utf-8"))
 
-                # XY（12行，mm）
+                # XY（12行，mm） — 不在遥测循环中修改 self._xy（移除持续扰动）
                 for i in range(12):
                     x, y = self._xy[i]
-                    # 轻微扰动
-                    x += random.uniform(-0.2, 0.2)
-                    y += random.uniform(-0.2, 0.2)
-                    self._xy[i] = (x, y)
                     self.telem.write(f"XY,{i+1},{x:.1f},{y:.1f}\n".encode("utf-8"))
             except Exception:
                 # 端口被占用或断开，短暂等待再试
                 time.sleep(0.2)
-            time.sleep(0.1)
+                continue
+            time.sleep(self._telem_interval)
 
 def main():
     ap = argparse.ArgumentParser(description="下位机串口模拟器（双口）")
@@ -211,12 +219,13 @@ def main():
     # 兼容旧用法：只传一个 --port，则该口兼做控制+遥测
     ap.add_argument("--port", help="单口兼容模式（控制+遥测同口）")
     ap.add_argument("--baud", type=int, default=115200, help="波特率")
+    ap.add_argument("--telem-interval", type=float, default=0.1, help="遥测发送间隔（秒），默认0.1s")
     args = ap.parse_args()
 
     if args.port:
-        dev = MockSerialDevice(ctrl_port=args.port, telem_port=None, baudrate=args.baud)
+        dev = MockSerialDevice(ctrl_port=args.port, telem_port=None, baudrate=args.baud, telemetry_interval=args.telem_interval)
     elif args.ctrl_port:
-        dev = MockSerialDevice(ctrl_port=args.ctrl_port, telem_port=args.telem_port, baudrate=args.baud)
+        dev = MockSerialDevice(ctrl_port=args.ctrl_port, telem_port=args.telem_port, baudrate=args.baud, telemetry_interval=args.telem_interval)
     else:
         print("请指定 --ctrl-port/--telem-port，或使用 --port 单口兼容模式。")
         return

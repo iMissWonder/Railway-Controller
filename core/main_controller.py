@@ -127,14 +127,35 @@ class MainController:
         gaps = [1450 + i * (2600 - 1450) / 5.0 for i in range(6)]
         up_idx = [0,2,4,6,8,10]; lo_idx = [1,3,5,7,9,11]
 
+        # 先按原逻辑生成坐标（未平移/扰动）
+        tmp_xy = [(0.0, 0.0)] * 12
         for k in range(6):
             ui, li = up_idx[k], lo_idx[k]
+            top_y = upper_y[k]
+            bot_y = top_y - gaps[k] + random.uniform(-30, 30)
+            tmp_xy[ui] = (x_positions[ui], top_y)
+            tmp_xy[li] = (x_positions[li], bot_y)
+
+        # 平移使 1 号腿 (index 0) 为原点 (0,0)
+        x0, y0 = tmp_xy[0]
+        shift_x = -x0
+        shift_y = -y0
+
+        # 应用平移并加入 ±5mm 的微扰，再写回 legs（或 reset）
+        for i, (x, y) in enumerate(tmp_xy):
+            nx = x + shift_x + random.uniform(-5.0, 5.0)
+            ny = -(y + shift_y) + random.uniform(-5.0, 5.0)  # Y 向下为正
             if not xy_only:
-                self.legs[ui].reset_random(); self.legs[li].reset_random()
-            self.legs[ui].x = x_positions[ui]; self.legs[li].x = x_positions[li]
-            top_y = upper_y[k]; bot_y = top_y - gaps[k] + random.uniform(-30, 30)
-            self.legs[ui].y = top_y; self.legs[li].y = bot_y
-        self.logger.info("已生成符合道岔分布的腿子 XY 初始坐标。")
+                # 若包含 Z/init 等，保留原逻辑对 z 的设置
+                self.legs[i].reset_random() if hasattr(self.legs[i], "reset_random") else None
+                self.legs[i].x = nx
+                self.legs[i].y = ny
+                # 保持原有 z 初始化策略（若有）不变
+            else:
+                self.legs[i].x = nx
+                self.legs[i].y = ny
+
+        self.logger.info("已生成符合要求的腿子 XY 初始坐标（1号腿为原点，XY扰动±5mm）。")
 
     def get_current_center_z(self) -> float:
         try:

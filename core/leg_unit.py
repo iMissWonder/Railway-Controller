@@ -33,28 +33,28 @@ def create_legs(n=12):
 
 def generate_leg_positions(legs):
     import random
-    # 生成 12 个腿子的 XY 坐标，符合道岔分布逻辑
     x_positions = [-8700, -8700, -6200, -6200, -3000, -3000,
                    0, 0, 3000, 3000, 6200, 6200]
 
-    # 五个“奇数号腿子”Y差不多（控制在100mm内）
-    base_upper_y = random.uniform(800, 900)
-    upper_y_values = [base_upper_y + random.uniform(-50, 50) for _ in range(6)]
-
-    # 逐步增大的间距，用于生成“偶数号腿子”
+    base_upper_y = random.uniform(760, 820)
+    upper_y_values = [base_upper_y + random.uniform(-40, 40) for _ in range(6)]
     gap_steps = [1450 + i * (2600 - 1450) / 5 for i in range(6)]
 
+    tmp_xy = [(0.0, 0.0)] * 12
     for i in range(6):
-        # 左边腿
         leg_left = legs[i * 2]
-        leg_left.x = x_positions[i * 2]
-        leg_left.y = upper_y_values[i]
-        leg_left.z = 600 + random.uniform(-20, 20)
-        leg_left.status = "初始化"
-
-        # 右边腿
         leg_right = legs[i * 2 + 1]
-        leg_right.x = x_positions[i * 2 + 1]
-        leg_right.y = upper_y_values[i] - gap_steps[i]
-        leg_right.z = 600 + random.uniform(-20, 20)
-        leg_right.status = "初始化"
+        top_y = upper_y_values[i]
+        bot_y = top_y - gap_steps[i] + random.uniform(-30, 30)
+        tmp_xy[i * 2] = (x_positions[i * 2], top_y)
+        tmp_xy[i * 2 + 1] = (x_positions[i * 2 + 1], bot_y)
+
+    # 平移使1号腿成为(0,0)，并加入 ±5mm 微扰，Y 向下为正
+    x0, y0 = tmp_xy[0]
+    shift_x = -x0
+    shift_y = -y0
+    for idx, (x, y) in enumerate(tmp_xy):
+        legs[idx].x = x + shift_x + random.uniform(-5.0, 5.0)
+        legs[idx].y = -(y + shift_y) + random.uniform(-5.0, 5.0)
+        legs[idx].z = 600 + random.uniform(-20, 20)
+        legs[idx].status = "初始化"
