@@ -1,0 +1,102 @@
+# core/geometry.py
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
+
+LegId = int  # 1..12
+
+@dataclass
+class SensorSnapshot:
+    """单周期原始数据（由 SensorSystem 整理好传入）"""
+    y_meas: Dict[LegId, float]     # 每腿 Y 实测（mm 或 m，与你全局单位一致）
+    z_meas: Dict[LegId, float]     # 每腿 Z 实测
+    force:  Dict[LegId, float]     # 受力，可用于权重
+    healthy: Dict[LegId, bool]     # 该腿本周期数据是否可信（CRC/范围/突变等已校验）
+
+@dataclass
+class GeometryConfig:
+    x_pos: Dict[LegId, float]      # 每腿“跨中累计距离” x_i（m）
+    tan_tab: Dict[LegId, float]    # 每腿所在断面的设计正切 tan_i（无量纲）
+    side_sign: Dict[LegId, int]    # 左右符号 s_i ∈ {+1, -1}（和你的坐标系一致）
+    center_pairs: List[Tuple[LegId, LegId]]  # 用于求 Xc 的对称腿对，例如 [(1,2),(3,4),(5,6)]
+    z_center_legs: List[LegId] = None       # 求 Zc 的腿集合，默认 [5,6,7,8]
+
+    def __post_init__(self):
+        if self.z_center_legs is None:
+            self.z_center_legs = [5,6,7,8]
+
+@dataclass
+class GeometryResult:
+    Xc: float                               # 几何中心（相对“①为原点”的 X 偏移）
+    Zc: float                               # 中心高程
+    y_theo: Dict[LegId, float]              # 每腿理论 Y
+    e_y: Dict[LegId, float]                 # 每腿平面偏差 e_yi = y_meas - y_theo
+    pair_details: List[Tuple[Tuple[LegId,LegId], float, float]]  
+    # [( (i,j), Xc_ij, weight_ij ), ...] 便于日志/诊断
+
+def _pair_weight(i: LegId, j: LegId, snap: SensorSnapshot) -> float:
+    """对某一对腿的置信权重：健康腿加成、受力不过限者加成（可按需细化）"""
+    base = 1.0
+    if not (snap.healthy.get(i, False) and snap.healthy.get(j, False)):
+        return 0.0
+    # 可按力传感器做软权重：受力越接近目标越高权
+    return base
+
+def compute_geometric_center_Xc(
+    snap: SensorSnapshot, cfg: GeometryConfig
+) -> Tuple[float, List[Tuple[Tuple[LegId,LegId], float, float]]]:
+    """
+    用多对对称腿联合估计几何中心 Xc。
+    对每一对 (i,j)：Δy = y_j - y_i，tan_ij = (tan_i + tan_j)/2，Xc_ij = (Δy/2)/tan_ij
+    再按权重求加权平均。
+    """
+    numers, denoms = 0.0, 0.0
+    details = []
+    for (i, j) in cfg.center_pairs:
+        yi, yj = snap.y_meas.get(i), snap.y_meas.get(j)
+        tani, tanj = cfg.tan_tab.get(i), cfg.tan_tab.get(j)
+        if yi is None or yj is None or tani is None or tanj is None:
+            continue
+        tan_ij = (tani + tanj) / 2.0
+        if abs(tan_ij) < 1e-9:
+            continue
+        dy = (yj - yi)
+        Xc_ij = (dy / 2.0) / tan_ij
+        w = _pair_weight(i, j, snap)
+        details.append(((i, j), Xc_ij, w))
+        numers += Xc_ij * w
+        denoms += w
+    Xc = numers / denoms if denoms > 0 else 0.0
+    return Xc, details
+
+def compute_center_Zc(snap: SensorSnapshot, cfg: GeometryConfig) -> float:
+    """中心高程，默认取 5~8 号腿平均；可按需改成加权平均。"""
+    vals = [snap.z_meas[k] for k in cfg.z_center_legs if k in snap.z_meas]
+    return sum(vals)/len(vals) if vals else 0.0
+
+def compute_theoretical_Y(
+    Xc: float, cfg: GeometryConfig
+) -> Dict[LegId, float]:
+    """
+    y_i_theo = s_i * tan_i * (x_i - Xc)
+    """
+    y_theo = {}
+    for i, xi in cfg.x_pos.items():
+        tan_i = cfg.tan_tab.get(i)
+        s_i = cfg.side_sign.get(i, 0)
+        if tan_i is None or s_i == 0:
+            continue
+        y_theo[i] = s_i * tan_i * (xi - Xc)
+    return y_theo
+
+def compute_center_and_theory(
+    snap: SensorSnapshot, cfg: GeometryConfig
+) -> GeometryResult:
+    Xc, details = compute_geometric_center_Xc(snap, cfg)
+    Zc = compute_center_Zc(snap, cfg)
+    y_theo = compute_theoretical_Y(Xc, cfg)
+    e_y = {}
+    for i, yth in y_theo.items():
+        ym = snap.y_meas.get(i)
+        if ym is not None:
+            e_y[i] = ym - yth
+    return GeometryResult(Xc=Xc, Zc=Zc, y_theo=y_theo, e_y=e_y, pair_details=details)
