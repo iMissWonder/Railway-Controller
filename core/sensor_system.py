@@ -31,6 +31,10 @@ class SensorSystem:
         self._legs = legs
         self._lock = threading.Lock()
 
+        # 批量日志控制
+        self._batch_data = {"imu": None, "legs": [None]*12}
+        self._legs_received_count = 0
+        
         if self.mode == "serial":
             if SerialInterface is None:
                 self.logger.warn("未找到 hardware.serial_interface，切回 mock")
@@ -77,26 +81,87 @@ class SensorSystem:
             line = self._buf[:pos].decode(errors="ignore").strip()
             del self._buf[:pos+1]
             if line:
-                self.logger.serial(line, direction="RX")
+                # 不再输出原始行，只输出解析后的合并信息
                 self._parse_line(line)
 
     def _parse_line(self, line: str):
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3: return
+
+        cmd = parts[0].upper()
         try:
-            parts = line.split(",")
-            tag = parts[0].upper()
-            if tag == "IMU" and len(parts) >= 4:
-                self._att = (float(parts[1]), float(parts[2]), float(parts[3]))
-            elif tag == "FOR" and len(parts) >= 3:
-                i = int(parts[1])-1; val = float(parts[2])
-                if 0 <= i < 12: self._forces[i] = val
-            elif tag == "Z" and len(parts) >= 3:
-                i = int(parts[1])-1; val = float(parts[2])
-                if 0 <= i < 12: self._legs_z[i] = val
-            elif tag == "XY" and len(parts) >= 4:
-                i = int(parts[1])-1; x = float(parts[2]); y = float(parts[3])
-                if 0 <= i < 12: self._legs_xy[i] = (x, y)
-        except Exception:
+            if cmd == "IMU":
+                roll, pitch, yaw = float(parts[1]), float(parts[2]), float(parts[3])
+                self._att = (roll, pitch, yaw)
+                # 立即输出IMU信息
+                if self.logger:
+                    self.logger.serial(f"RX IMU: roll={roll:.4f}, pitch={pitch:.4f}, yaw={yaw:.4f}", direction="RX")
+
+            elif cmd in ("FOR", "Z", "XY"):
+                idx = int(parts[1]) - 1
+                if 0 <= idx < 12:
+                    if cmd == "FOR":
+                        force = float(parts[2])
+                        self._forces[idx] = force
+                        # 更新批量数据
+                        if self._batch_data["legs"][idx] is None:
+                            self._batch_data["legs"][idx] = {}
+                        self._batch_data["legs"][idx]["F"] = force
+                        
+                    elif cmd == "Z":
+                        z_mm = float(parts[2])
+                        self._legs_z[idx] = z_mm
+                        # 更新批量数据
+                        if self._batch_data["legs"][idx] is None:
+                            self._batch_data["legs"][idx] = {}
+                        self._batch_data["legs"][idx]["Z"] = z_mm
+                        
+                    elif cmd == "XY":
+                        x_mm, y_mm = float(parts[2]), float(parts[3])
+                        self._legs_xy[idx] = (x_mm, y_mm)
+                        # 更新批量数据
+                        if self._batch_data["legs"][idx] is None:
+                            self._batch_data["legs"][idx] = {}
+                        self._batch_data["legs"][idx]["X"] = x_mm
+                        self._batch_data["legs"][idx]["Y"] = y_mm
+                        
+                        # 当收到XY时，检查该腿是否收齐了XYZF数据，如果是则累计
+                        leg_data = self._batch_data["legs"][idx]
+                        if all(k in leg_data for k in ["X", "Y", "Z", "F"]):
+                            self._legs_received_count += 1
+                            
+                        # 如果所有12个腿子都收齐了，输出批量信息
+                        if self._legs_received_count >= 12:
+                            self._output_batch_legs()
+                            self._reset_batch_data()
+                            
+        except (ValueError, IndexError):
             pass
+
+    def _output_batch_legs(self):
+        """输出所有腿子的批量信息到一行"""
+        if not self.logger:
+            return
+            
+        leg_parts = []
+        for i in range(12):
+            leg_data = self._batch_data["legs"][i]
+            if leg_data and all(k in leg_data for k in ["X", "Y", "Z", "F"]):
+                x, y, z, f = leg_data["X"], leg_data["Y"], leg_data["Z"], leg_data["F"]
+                leg_parts.append(f"L{i+1:02d}({x:.0f},{y:.0f},{z:.0f},{f:.0f})")
+            else:
+                leg_parts.append(f"L{i+1:02d}(---)")
+        
+        # 分成两行，每行6个腿子，避免过长
+        line1 = " ".join(leg_parts[:6])
+        line2 = " ".join(leg_parts[6:])
+        self.logger.serial(f"RX LEGS1-6:  {line1}", direction="RX")
+        self.logger.serial(f"RX LEGS7-12: {line2}", direction="RX")
+
+    def _reset_batch_data(self):
+        """重置批量数据"""
+        self._batch_data = {"imu": None, "legs": [None]*12}
+        self._legs_received_count = 0
 
     def _snapshot_raw(self) -> Dict[str, Any]:
         return {"att": self._att, "forces": self._forces[:],

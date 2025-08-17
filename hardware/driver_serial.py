@@ -44,10 +44,10 @@ class DriverSerial(ActuatorDriver):
         return self.iface.is_open()
 
     def apply_batch(self, cmds: List[Dict]) -> bool:
-        # 先按腿记录可读的“人类友好日志”（非DEBUG也显示）
+        # 批量命令一行显示
         if self.logger:
-            for c in cmds:
-                self.logger.serial(f"TX leg#{int(c['id']):02d} Δz={c['dz']:.2f} Δx={c['dx']:.2f} Δy={c['dy']:.2f}", direction="TX")
+            cmd_summary = ", ".join([f"L{int(c['id']):02d}(Δz={c['dz']:.1f},Δx={c['dx']:.1f},Δy={c['dy']:.1f})" for c in cmds])
+            self.logger.serial(f"TX BATCH: {cmd_summary}", direction="TX")
 
         # 再拼帧发送
         payload = bytearray()
@@ -58,15 +58,15 @@ class DriverSerial(ActuatorDriver):
                                    mm_to_dm(float(c["dx"])),
                                    mm_to_dm(float(c["dy"])))
         frame = pack_frame(0x01, bytes(payload))
-        if self.logger: self.logger.serial(f"TX frame len={len(frame)}", direction="TX")
+        if self.logger: self.logger.serial(f"TX frame {len(frame)}B", direction="TX")
         return self._send(frame, expect_ack=True)
 
     def move_leg_delta(self, leg_id: int, dz: float, dx: float, dy: float) -> bool:
         if self.logger:
-            self.logger.serial(f"TX leg#{int(leg_id):02d} Δz={dz:.2f} Δx={dx:.2f} Δy={dy:.2f}", direction="TX")
+            self.logger.serial(f"TX SINGLE: L{int(leg_id):02d}(Δz={dz:.1f},Δx={dx:.1f},Δy={dy:.1f})", direction="TX")
         payload = struct.pack("<Bhhh", int(leg_id), mm_to_dm(dz), mm_to_dm(dx), mm_to_dm(dy))
         frame = pack_frame(0x02, payload)
-        if self.logger: self.logger.serial(f"TX frame len={len(frame)}", direction="TX")
+        if self.logger: self.logger.serial(f"TX frame {len(frame)}B", direction="TX")
         return self._send(frame, expect_ack=True)
 
     def stop_all(self) -> None:
