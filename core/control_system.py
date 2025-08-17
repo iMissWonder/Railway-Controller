@@ -4,8 +4,8 @@ from typing import List, Dict, Tuple, Optional
 
 FORCE_THRESHOLD = (80.0, 120.0)
 ATTITUDE_OUTLIER_MM = 20.0
-MAX_STEP_Z_MM = 8.0
-MAX_STEP_XY_MM = 2.0
+MAX_STEP_Z_MM = 10.0
+MAX_STEP_XY_MM = 5.0
 CENTER_Z_RATE_MM_S = 20.0
 LEVELING_GAIN = 0.4
 CENTER_GAIN_XY = 0.2
@@ -128,8 +128,10 @@ class ControlSystem:
             self.logger.debug("tick_once: sensor.refresh_once")
             self.sensor.refresh_once()
 
-        state = self.estimator.estimate(self.legs, self.sensor)
-        self.logger.debug(f"tick_once: center_z={state.center_z:.2f}")
+        # (1) 状态估计 - 这里有错误！
+        # 错误：sensor_system 应该是 self.sensor
+        state = self.estimator.estimate(self.legs, self.sensor)  # 修正这一行
+        self.logger.debug(f"几何中心: X={state.center_x:.2f}, Y={state.center_y:.2f}, Z={state.center_z:.2f}")
 
         # (1.5) 检查任务完成条件
         if self._check_completion(state):

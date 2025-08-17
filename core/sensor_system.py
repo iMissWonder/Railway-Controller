@@ -1,5 +1,11 @@
 # core/sensor_system.py
-import threading, time
+import threading
+import time
+import random
+
+# 引入几何计算模块
+from core.geometry import compute_center_and_theory, SensorSnapshot
+
 from typing import Dict, Any, Optional, Tuple, List
 from core.logger import Logger
 
@@ -35,6 +41,9 @@ class SensorSystem:
         self._batch_data = {"imu": None, "legs": [None]*12}
         self._legs_received_count = 0
         
+        # 几何中心计算缓存
+        self._geometric_center_cache = (0.0, 0.0, 0.0)
+
         if self.mode == "serial":
             if SerialInterface is None:
                 self.logger.warn("未找到 hardware.serial_interface，切回 mock")
@@ -50,16 +59,80 @@ class SensorSystem:
                     self.mode = "mock"
 
     # 查询
-    def estimate_center(self) -> Tuple[float, float, float]: return self._center
+    def estimate_center(self) -> Tuple[float, float, float]: 
+        """返回估计的几何中心（融合几何计算结果）"""
+        return self._geometric_center_cache
+
     def estimate_attitude(self) -> Tuple[float, float, float]: return self._att
     def latest_forces(self) -> List[float]: return self._forces[:]
     def legs_state(self) -> Dict[str, Any]: return {"z": self._legs_z[:], "xy": self._legs_xy[:]}
 
+    def _update_geometric_center(self):
+        """更新几何中心计算"""
+        if not self._legs:
+            return
+            
+        try:
+            # 创建传感器快照
+            snap = self._create_sensor_snapshot()
+            
+            # 计算几何中心
+            geo_result = compute_center_and_theory(snap)
+            
+            # 更新缓存
+            cx = geo_result.Xc
+            cz = geo_result.Zc
+            
+            # 计算Y中心（对称腿对平均）
+            cy = 0.0
+            valid_pairs = 0
+            for i in range(1, 13, 2):
+                if i in snap.y_meas and (i+1) in snap.y_meas:
+                    cy += (snap.y_meas[i] + snap.y_meas[i+1]) / 2.0
+                    valid_pairs += 1
+            cy = cy / max(1, valid_pairs)
+            
+            self._geometric_center_cache = (cx, cy, cz)
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"几何中心计算失败: {e}")
+
+    def _create_sensor_snapshot(self) -> SensorSnapshot:
+        """创建当前状态的传感器快照"""
+        y_meas = {}
+        z_meas = {}
+        x_meas = {}
+        force_meas = {}
+        healthy = {}
+        
+        for i, leg in enumerate(self._legs):
+            leg_id = getattr(leg, "id", i + 1)
+            y_meas[leg_id] = getattr(leg, "y", 0.0)
+            z_meas[leg_id] = getattr(leg, "z", 0.0)
+            x_meas[leg_id] = getattr(leg, "x", 0.0)
+            force_meas[leg_id] = getattr(leg, "force", 0.0)
+            healthy[leg_id] = True
+            
+        return SensorSnapshot(
+            y_meas=y_meas,
+            z_meas=z_meas,
+            x_meas=x_meas,
+            force=force_meas,
+            healthy=healthy
+        )
+
     def refresh_once(self):
         raw = self._snapshot_raw() if self.mode == "serial" else self._mock_pull()
         self._fuse(raw)
-        cx, cy, cz = self._center; r, p, y = self._att
-        self.logger.telemetry(center_z=round(cz,1), roll=round(r,4), pitch=round(p,4),
+        
+        # 更新几何中心计算
+        self._update_geometric_center()
+        
+        cx, cy, cz = self._geometric_center_cache
+        r, p, y = self._att
+        self.logger.telemetry(center_x=round(cx,2), center_y=round(cy,2), center_z=round(cz,1), 
+                              roll=round(r,4), pitch=round(p,4),
                               forces=[round(f,1) for f in self._forces])
         time.sleep(self.dt)
 
