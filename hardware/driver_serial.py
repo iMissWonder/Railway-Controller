@@ -103,4 +103,20 @@ class DriverSerial(ActuatorDriver):
 
     def _on_rx(self, chunk: bytes):
         self._last_rx = chunk
-        if self.logger: self.logger.serial(f"RX {len(chunk)}B", direction="RX")
+        if self.logger: 
+            hex_str = ' '.join(f'{b:02X}' for b in chunk)
+            # 尝试解析ACK帧
+            frame_info = ""
+            if len(chunk) >= 4:
+                try:
+                    stx = int.from_bytes(chunk[:2], 'little')
+                    if stx == 0xAA55:
+                        length = chunk[2]
+                        cmd = chunk[3]
+                        if cmd == 0x81:
+                            frame_info = " (ACK)"
+                        else:
+                            frame_info = f" (CMD=0x{cmd:02X})"
+                except Exception:
+                    pass
+            self.logger.serial(f"RX {len(chunk)}B: {hex_str}{frame_info}", direction="RX")

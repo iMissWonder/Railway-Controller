@@ -43,6 +43,12 @@ class ControlSystem:
         self._rate_mm_s = 10.0   # 默认下降速率
         self._max_single_step = 5.0  # 默认单次最大步长
         
+        # 任务完成相关参数
+        self._target_depth = 0.0  # 目标下降深度（mm），0表示下降到地面
+        self._completion_tolerance = 2.0  # 完成容差（mm）
+        self._stable_count_threshold = 5  # 稳定次数阈值
+        self._stable_count = 0  # 当前稳定计数
+        
         # 初始化时设置合理的目标中心Z，避免第一次调用时步长过大
         try:
             current_center_z = self._get_initial_center_z()
@@ -58,11 +64,15 @@ class ControlSystem:
         self._rate_mm_s = rate_mm_s
         self._max_single_step = max_single_step
         self.period_s = period_ms / 1000.0  # 同时更新内部周期
+        
+        # 重置稳定计数（参数变化时重新开始检测）
+        self._stable_count = 0
         self.logger.info(f"控制参数更新：周期{period_ms}ms，速率{rate_mm_s}mm/s，最大步长{max_single_step:.2f}mm")
 
     # ===== 外部接口 =====
     def start_loop(self, period_ms: int = 100):
         self._emergency = False                         # 关键：允许从急停/停止恢复
+        self._stable_count = 0                          # 重置稳定计数
         self.period_s = max(0.03, period_ms/1000.0)
         self._loop_stop.clear()
         self._last_ts = time.time()
@@ -120,6 +130,12 @@ class ControlSystem:
 
         state = self.estimator.estimate(self.legs, self.sensor)
         self.logger.debug(f"tick_once: center_z={state.center_z:.2f}")
+
+        # (1.5) 检查任务完成条件
+        if self._check_completion(state):
+            self.logger.info(f"下降任务完成：中心Z={state.center_z:.1f}mm，已达到目标深度")
+            self._auto_stop_with_completion()
+            return
 
         # (2) 计划中心下降量（使用GUI传递的参数）
         planned_center_delta = min(self._rate_mm_s * dt, self._max_single_step)
@@ -241,3 +257,38 @@ class ControlSystem:
     @staticmethod
     def _clip(v: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, v))
+
+    def _check_completion(self, state) -> bool:
+        """检查下降任务是否完成"""
+        # 条件1：中心Z接近目标深度
+        z_near_target = abs(state.center_z - self._target_depth) <= self._completion_tolerance
+        
+        # 条件2：四角调平完成（所有角点高度差在容差内）
+        max_corner_diff = max(abs(dz) for dz in state.corner_dz.values()) if state.corner_dz else 0.0
+        corners_leveled = max_corner_diff <= self._completion_tolerance
+        
+        # 条件3：稳定性检查（连续几个周期都满足上述条件）
+        if z_near_target and corners_leveled:
+            self._stable_count += 1
+            self.logger.debug(f"完成条件满足：Z差={abs(state.center_z - self._target_depth):.1f}mm, "
+                            f"最大角差={max_corner_diff:.1f}mm, 稳定计数={self._stable_count}")
+        else:
+            self._stable_count = 0
+        
+        return self._stable_count >= self._stable_count_threshold
+    
+    def _auto_stop_with_completion(self):
+        """任务完成后自动停止"""
+        self.logger.info("🎉 下降与调平任务已完成，自动停止控制循环")
+        if self.update_ui:
+            self.update_ui("任务完成：下降与调平完成", "已完成")
+        
+        # 停止循环（但不触发急停）
+        self._loop_stop.set()
+        
+        # 可选：发送最终停止命令确保所有腿子停止
+        try:
+            if hasattr(self.driver, "stop_all"):
+                self.driver.stop_all()
+        except Exception as e:
+            self.logger.exception(e, "完成后停止命令失败")
