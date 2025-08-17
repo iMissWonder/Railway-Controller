@@ -263,29 +263,29 @@ class GUIController:
         # 获取各种中心点信息
         cz = sum(display_z[i] for i in [4,5,6,7]) / 4.0  # 实际中心Z
         
-        # 获取实际中心XYZ（从传感器系统）
-        try:
-            actual_center = self.controller.sensor.estimate_center()
-            actual_cx, actual_cy, actual_cz = actual_center
-        except Exception:
-            actual_cx, actual_cy, actual_cz = 0.0, 0.0, cz
-        
-        # 获取几何中心XYZ（从估计器）
-        try:
-            state = self.controller.estimator.estimate(self.legs, self.controller.sensor)
-            geo_cx, geo_cy, geo_cz = state.center_x, state.center_y, state.center_z
-        except Exception:
-            geo_cx, geo_cy, geo_cz = 0.0, 0.0, cz
-        
         # 获取目标中心Z
         tgt = getattr(self.controller.control, '_target_center_z', None)
         tgt_txt = f"{tgt:.0f}mm" if tgt is not None else "-"
         
+        # 获取固定的理论几何中心
+        try:
+            theory_cx, theory_cy = self.controller.control._initial_geometric_center
+            theory_cz = sum(display_z[i] for i in [4,5,6,7]) / 4.0  # Z轴暂时使用实时计算
+        except Exception:
+            theory_cx, theory_cy, theory_cz = 0.0, 0.0, cz
+        
+        # 获取当前实际几何中心
+        try:
+            state = self.controller.estimator.estimate(self.legs, self.controller.sensor)
+            current_cx, current_cy, current_cz = state.center_x, state.center_y, state.center_z
+        except Exception:
+            current_cx, current_cy, current_cz = 0.0, 0.0, cz
+        
         # 更新中心信息显示
         self.center_info_label.config(
             text=f"目标中心Z：{tgt_txt}  |  "
-                 f"实际中心：X={actual_cx:.1f}, Y={actual_cy:.1f}, Z={actual_cz:.1f}mm  |  "
-                 f"几何中心：X={geo_cx:.1f}, Y={geo_cy:.1f}, Z={geo_cz:.1f}mm"
+                 f"当前几何中心：X={current_cx:.1f}, Y={current_cy:.1f}, Z={current_cz:.1f}mm  |  "
+                 f"理论几何中心：X={theory_cx:.1f}, Y={theory_cy:.1f}, Z={theory_cz:.1f}mm"
         )
 
         # Z 柱状
@@ -315,12 +315,17 @@ class GUIController:
             self.ax_xy.plot([xs[i], xs[i+1]], [ys[i], ys[i+1]], color='gray', linestyle='--', alpha=0.5)
 
         # 画实际中心点（蓝色三角形）
-        self.ax_xy.scatter([actual_cx], [actual_cy], c='blue', s=100, marker='^', 
-                          label=f'实际中心 ({actual_cx:.1f}, {actual_cy:.1f})', edgecolors='black', linewidth=2)
+        self.ax_xy.scatter([current_cx], [current_cy], c='blue', s=100, marker='^', 
+                          label=f'当前几何中心 ({current_cx:.1f}, {current_cy:.1f})', edgecolors='black', linewidth=2)
 
-        # 画几何中心点（绿色菱形）
-        self.ax_xy.scatter([geo_cx], [geo_cy], c='green', s=100, marker='D', 
-                          label=f'几何中心 ({geo_cx:.1f}, {geo_cy:.1f})', edgecolors='black', linewidth=2)
+        # 画理论几何中心点（绿色菱形）
+        self.ax_xy.scatter([theory_cx], [theory_cy], c='green', s=100, marker='D', 
+                          label=f'理论几何中心 ({theory_cx:.1f}, {theory_cy:.1f})', edgecolors='black', linewidth=2)
+
+        # 画中心偏差连线
+        if abs(current_cx - theory_cx) > 1 or abs(current_cy - theory_cy) > 1:
+            self.ax_xy.plot([current_cx, theory_cx], [current_cy, theory_cy], 
+                           color='red', linestyle='--', linewidth=2, alpha=0.7, label='中心偏差')
 
         # 添加图例
         self.ax_xy.legend(loc='upper right', fontsize=8)

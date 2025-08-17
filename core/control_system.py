@@ -56,6 +56,10 @@ class ControlSystem:
         except Exception:
             self._target_center_z = 600.0  # 默认值
             
+        # 计算并固定理论几何中心（初始化时一次性计算）
+        self._initial_geometric_center = self._calculate_initial_geometric_center()
+        self.logger.info(f"固定理论几何中心: X={self._initial_geometric_center[0]:.1f}, Y={self._initial_geometric_center[1]:.1f}")
+        
         self.logger.info(f"控制系统初始化完成：simulate_feedback={self.simulate_feedback}")
 
     def update_control_params(self, period_ms: float, rate_mm_s: float, max_single_step: float):
@@ -198,29 +202,44 @@ class ControlSystem:
         n = len(self.legs)
         dx = [0.0]*n; dy = [0.0]*n
 
-        shift_x = self._clip(-state.center_x*CENTER_GAIN_XY, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
-        shift_y = self._clip(-state.center_y*CENTER_GAIN_XY, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
+        # 修改：使用当前几何中心与固定理论中心的偏差进行校正
+        current_cx = state.center_x
+        current_cy = state.center_y
+        target_cx, target_cy = self._initial_geometric_center
+        
+        # 计算偏差并校正（将当前中心拉向固定的理论中心）
+        error_x = current_cx - target_cx
+        error_y = current_cy - target_cy
+        
+        shift_x = self._clip(-error_x * CENTER_GAIN_XY, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
+        shift_y = self._clip(-error_y * CENTER_GAIN_XY, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
+        
+        self.logger.debug(f"几何中心校正: 当前({current_cx:.1f},{current_cy:.1f}) → 目标({target_cx:.1f},{target_cy:.1f}), 校正({shift_x:.2f},{shift_y:.2f})")
 
+        # 上排腿子Y向一致性维护（保持不变）
         upper_avg_y = sum(self.legs[i].y for i in self.upper_leg_indices)/len(self.upper_leg_indices)
         band_shift = self._clip((self._upper_band_avg_y0 - upper_avg_y)*0.05, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
 
+        # 应用全局校正
         for i in range(n):
             dx[i] += shift_x
             dy[i] += shift_y
         for idx in self.upper_leg_indices:
             dy[idx] += band_shift
 
-        # 成对约束
+        # 成对约束（保持不变）
         for k in range(6):
             up = self.upper_leg_indices[k]; lo = self.lower_leg_indices[k]
-            # Y 差保持：只调整下排，避免破坏上排一致性
+            
+            # Y差保持：只调整下排，避免破坏上排一致性
             desired_lo_y = (self.legs[up].y + dy[up]) - self._pair_initial_y_diff[k]
             dy[lo] += self._clip(desired_lo_y - self.legs[lo].y, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
 
-            # X 对齐：锁定对中线，带极小抖动
+            # X对齐：锁定对中线，带极小抖动
             x_center = self._pair_initial_x_center[k]
             jitter = random.uniform(-PAIR_X_JITTER_MM, PAIR_X_JITTER_MM)*PAIR_CONSTRAINT_WEIGHT
             desired_pair_x = x_center + jitter
+            
             dx[up] += self._clip(desired_pair_x - self.legs[up].x, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
             dx[lo] += self._clip(desired_pair_x - self.legs[lo].x, -MAX_STEP_XY_MM, MAX_STEP_XY_MM)
 
@@ -293,3 +312,35 @@ class ControlSystem:
                 self.driver.stop_all()
         except Exception as e:
             self.logger.exception(e, "完成后停止命令失败")
+
+    def _calculate_initial_geometric_center(self) -> Tuple[float, float]:
+        """计算并固定初始理论几何中心，后续不再动态变化"""
+        try:
+            # 创建初始传感器快照
+            from core.geometry import SensorSnapshot, compute_center_and_theory
+            
+            snap = SensorSnapshot(
+                y_meas={i+1: leg.y for i, leg in enumerate(self.legs)},
+                z_meas={i+1: leg.z for i, leg in enumerate(self.legs)},
+                x_meas={i+1: leg.x for i, leg in enumerate(self.legs)},
+                force={i+1: getattr(leg, "force", 0.0) for i, leg in enumerate(self.legs)},
+                healthy={i+1: True for i in range(len(self.legs))}
+            )
+            
+            # 计算理论几何中心
+            geo_result = compute_center_and_theory(snap)
+            
+            # 计算理论Y中心（对称腿对平均）
+            cy = 0.0
+            valid_pairs = 0
+            for i in range(1, 13, 2):
+                if i in snap.y_meas and (i+1) in snap.y_meas:
+                    cy += (snap.y_meas[i] + snap.y_meas[i+1]) / 2.0
+                    valid_pairs += 1
+            cy = cy / max(1, valid_pairs)
+            
+            return (geo_result.Xc, cy)
+            
+        except Exception as e:
+            self.logger.warning(f"初始几何中心计算失败，使用默认值(0,0): {e}")
+            return (0.0, 0.0)
