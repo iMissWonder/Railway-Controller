@@ -49,11 +49,23 @@ class GUIController:
 
         # 输入框
         wrap = tk.Frame(root); wrap.pack(pady=4)
-        head = tk.Frame(wrap); head.pack()
-        for i,t in enumerate(("腿子","X","Y","Z")):
-            tk.Label(head, text=t).grid(row=0, column=i, padx=6)
         left = tk.Frame(wrap); right = tk.Frame(wrap)
         left.pack(side=tk.LEFT, padx=20); right.pack(side=tk.LEFT, padx=20)
+        
+        # 左侧标题和表头
+        left_title = tk.Label(left, text="腿子 1-6 坐标信息", font=("黑体", 12))
+        left_title.pack(pady=(0,5))
+        left_head = tk.Frame(left); left_head.pack()
+        for i,t in enumerate(("编号","X","Y","Z")):
+            tk.Label(left_head, text=t, font=("黑体", 10)).grid(row=0, column=i, padx=6)
+        
+        # 右侧标题和表头
+        right_title = tk.Label(right, text="腿子 7-12 坐标信息", font=("黑体", 12))
+        right_title.pack(pady=(0,5))
+        right_head = tk.Frame(right); right_head.pack()
+        for i,t in enumerate(("编号","X","Y","Z")):
+            tk.Label(right_head, text=t, font=("黑体", 10)).grid(row=0, column=i, padx=6)
+        
         self.coord_entries = [None]*12
         for i in range(6):
             self.coord_entries[i] = self._row(left, i)
@@ -89,7 +101,8 @@ class GUIController:
         f = tk.Frame(parent); f.pack(pady=1)
         tk.Label(f, text=f"{idx+1:02d}").pack(side=tk.LEFT, padx=6)
         x = tk.Entry(f, width=8); y = tk.Entry(f, width=8); z = tk.Entry(f, width=8)
-        for e in (x,y,z): e.configure(state="readonly")
+        # 移除readonly状态，让输入框可以正常显示和更新内容
+        # for e in (x,y,z): e.configure(state="readonly")
         x.pack(side=tk.LEFT); y.pack(side=tk.LEFT, padx=4); z.pack(side=tk.LEFT)
         return (x,y,z)
 
@@ -193,11 +206,35 @@ class GUIController:
         # 输入框
         for i,(xe,ye,ze) in enumerate(self.coord_entries):
             # 输入框显示传感器实际值
-            x_val, y_val = display_xy[i]
-            z_val = display_z[i]
-            for e,v in ((xe,x_val),(ye,y_val),(ze,z_val)):
-                e.delete(0, tk.END)
-                e.insert(0, f"{v:.1f}")
+            try:
+                x_val, y_val = display_xy[i] if i < len(display_xy) else (0.0, 0.0)
+                z_val = display_z[i] if i < len(display_z) else 0.0
+                
+                # 更新输入框内容
+                xe.config(state="normal")
+                xe.delete(0, tk.END)
+                xe.insert(0, f"{x_val:.1f}")
+                xe.config(state="readonly")
+                
+                ye.config(state="normal")
+                ye.delete(0, tk.END)
+                ye.insert(0, f"{y_val:.1f}")
+                ye.config(state="readonly")
+                
+                ze.config(state="normal")
+                ze.delete(0, tk.END)
+                ze.insert(0, f"{z_val:.1f}")
+                ze.config(state="readonly")
+            except Exception as e:
+                # 如果更新失败，至少清空输入框避免显示错误数据
+                for entry in [xe, ye, ze]:
+                    try:
+                        entry.config(state="normal")
+                        entry.delete(0, tk.END)
+                        entry.insert(0, "0.0")
+                        entry.config(state="readonly")
+                    except Exception:
+                        pass
 
     def _on_close(self):
         try: self.controller.shutdown(); self.logger.info("窗口关闭，程序退出")
