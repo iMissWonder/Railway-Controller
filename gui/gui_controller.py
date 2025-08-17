@@ -23,12 +23,14 @@ class GUIController:
 
         self.root.title("道岔腿子控制系统（周期闭环 + 串口监视器）")
 
-        # 顶部
+        # 顶部状态显示区域
         top = tk.Frame(root); top.pack(fill=tk.X, pady=4)
         self.status_label = tk.Label(top, text="运行状态：初始化完成", font=("黑体", 14))
         self.status_label.pack(side=tk.LEFT, padx=10)
-        self.center_info_label = tk.Label(top, text="目标中心Z：-  实际中心Z：-")
-        self.center_info_label.pack(side=tk.LEFT, padx=10)
+        
+        # 中心信息显示（合并所有中心信息）
+        self.center_info_label = tk.Label(top, text="目标中心Z：-  实际中心：-  几何中心：-", font=("宋体", 10))
+        self.center_info_label.pack(side=tk.RIGHT, padx=10)
 
         # 控制区
         ctr = tk.Frame(root); ctr.pack(fill=tk.X, pady=4)
@@ -258,10 +260,33 @@ class GUIController:
             display_z = [l.z for l in self.legs]
             display_xy = [(l.x, l.y) for l in self.legs]
         
-        cz = sum(display_z[i] for i in [4,5,6,7]) / 4.0
+        # 获取各种中心点信息
+        cz = sum(display_z[i] for i in [4,5,6,7]) / 4.0  # 实际中心Z
+        
+        # 获取实际中心XYZ（从传感器系统）
+        try:
+            actual_center = self.controller.sensor.estimate_center()
+            actual_cx, actual_cy, actual_cz = actual_center
+        except Exception:
+            actual_cx, actual_cy, actual_cz = 0.0, 0.0, cz
+        
+        # 获取几何中心XYZ（从估计器）
+        try:
+            state = self.controller.estimator.estimate(self.legs, self.controller.sensor)
+            geo_cx, geo_cy, geo_cz = state.center_x, state.center_y, state.center_z
+        except Exception:
+            geo_cx, geo_cy, geo_cz = 0.0, 0.0, cz
+        
+        # 获取目标中心Z
         tgt = getattr(self.controller.control, '_target_center_z', None)
         tgt_txt = f"{tgt:.0f}mm" if tgt is not None else "-"
-        self.center_info_label.config(text=f"目标中心Z：{tgt_txt}    实际中心Z：{cz:.0f}mm")
+        
+        # 更新中心信息显示
+        self.center_info_label.config(
+            text=f"目标中心Z：{tgt_txt}  |  "
+                 f"实际中心：X={actual_cx:.1f}, Y={actual_cy:.1f}, Z={actual_cz:.1f}mm  |  "
+                 f"几何中心：X={geo_cx:.1f}, Y={geo_cy:.1f}, Z={geo_cz:.1f}mm"
+        )
 
         # Z 柱状
         self.ax_z.clear(); self.ax_z.set_title("腿子Z轴高度"); self.ax_z.set_ylim(0,700)
@@ -272,24 +297,41 @@ class GUIController:
             self.ax_z.text(b.get_x()+b.get_width()/2, b.get_height()+8, f"{zvals[i]:.0f}mm",
                            ha='center', va='bottom', fontsize=8)
 
-        # XY
+        # XY坐标图（添加中心点显示）
         self.ax_xy.clear(); self.ax_xy.set_title("腿子XY坐标分布")
         self.ax_xy.set_xlabel("X (mm)"); self.ax_xy.set_ylabel("Y (mm)")
         self.ax_xy.grid(True); self.ax_xy.set_aspect('equal')
+        
+        # 画腿子位置
         xs = [xy[0] for xy in display_xy]; ys = [xy[1] for xy in display_xy]
-        self.ax_xy.scatter(xs, ys, c='red')
+        self.ax_xy.scatter(xs, ys, c='red', s=50, marker='o', label='腿子位置')
+        
+        # 标注腿子编号
         for i in range(12):
             self.ax_xy.text(xs[i], ys[i]+40, str(i+1), fontsize=9, ha='center')
+        
+        # 画对称腿对连线
         for i in range(0,12,2):
-            self.ax_xy.plot([xs[i], xs[i+1]], [ys[i], ys[i+1]], color='gray', linestyle='--')
+            self.ax_xy.plot([xs[i], xs[i+1]], [ys[i], ys[i+1]], color='gray', linestyle='--', alpha=0.5)
 
-        # 四角
+        # 画实际中心点（蓝色三角形）
+        self.ax_xy.scatter([actual_cx], [actual_cy], c='blue', s=100, marker='^', 
+                          label=f'实际中心 ({actual_cx:.1f}, {actual_cy:.1f})', edgecolors='black', linewidth=2)
+
+        # 画几何中心点（绿色菱形）
+        self.ax_xy.scatter([geo_cx], [geo_cy], c='green', s=100, marker='D', 
+                          label=f'几何中心 ({geo_cx:.1f}, {geo_cy:.1f})', edgecolors='black', linewidth=2)
+
+        # 添加图例
+        self.ax_xy.legend(loc='upper right', fontsize=8)
+
+        # 四角翘曲图
         self.ax_att.clear(); self.ax_att.set_title("四角翘曲高度（相对中心Z）")
         dzs = [display_z[i] - cz for i in [0,1,10,11]]
         self.ax_att.bar(["左前(1)", "左后(2)", "右后(11)", "右前(12)"], dzs, color='orange')
         self.ax_att.set_ylim(-100, 100)
 
-        # 受力（保持原逻辑，或也可从传感器系统获取）
+        # 受力监测图
         self.ax_force.clear(); self.ax_force.set_title("腿子受力监测")
         try:
             forces = self.controller.sensor.latest_forces()
@@ -300,7 +342,8 @@ class GUIController:
         self.ax_force.set_ylim(0, 150)
 
         self.canvas.draw()
-        # 输入框
+        
+        # 更新输入框内容
         for i,(xe,ye,ze) in enumerate(self.coord_entries):
             # 输入框显示传感器实际值
             try:
@@ -322,16 +365,8 @@ class GUIController:
                 ze.delete(0, tk.END)
                 ze.insert(0, f"{z_val:.1f}")
                 ze.config(state="readonly")
-            except Exception as e:
-                # 如果更新失败，至少清空输入框避免显示错误数据
-                for entry in [xe, ye, ze]:
-                    try:
-                        entry.config(state="normal")
-                        entry.delete(0, tk.END)
-                        entry.insert(0, "0.0")
-                        entry.config(state="readonly")
-                    except Exception:
-                        pass
+            except Exception:
+                pass
 
     def _on_close(self):
         try: 

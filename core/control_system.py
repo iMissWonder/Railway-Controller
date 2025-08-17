@@ -128,9 +128,8 @@ class ControlSystem:
             self.logger.debug("tick_once: sensor.refresh_once")
             self.sensor.refresh_once()
 
-        # (1) 状态估计 - 这里有错误！
-        # 错误：sensor_system 应该是 self.sensor
-        state = self.estimator.estimate(self.legs, self.sensor)  # 修正这一行
+        # (1) 状态估计
+        state = self.estimator.estimate(self.legs, self.sensor) 
         self.logger.debug(f"几何中心: X={state.center_x:.2f}, Y={state.center_y:.2f}, Z={state.center_z:.2f}")
 
         # (1.5) 检查任务完成条件
