@@ -118,20 +118,11 @@ class GUIController:
         period_ms = max(30, int(self.period_var.get()))
         rate_mm_s = max(0.0, float(self.rate_var.get()))
         
-        # 计算单次最大步长：rate_mm_s * (period_ms / 1000)
-        max_single_step = rate_mm_s * (period_ms / 1000.0)
-        
-        # 传递参数给控制系统
-        self.controller.control.update_control_params(
-            period_ms=period_ms,
-            rate_mm_s=rate_mm_s,
-            max_single_step=max_single_step
-        )
-        
+        # 只通过MainController的set方法设置参数（它们内部会调用update_control_params）
         self.controller.set_period_ms(period_ms)
         self.controller.set_center_rate(rate_mm_s)
         self.controller.start_loop()
-        self.logger.info(f"启动闭环：period={period_ms}ms, rate={rate_mm_s}mm/s, max_step={max_single_step:.2f}mm")
+        self.logger.info(f"启动闭环：period={period_ms}ms, rate={rate_mm_s}mm/s")
 
     def _on_stop(self):
         self.controller.stop_loop(); self.logger.info("停止闭环。")

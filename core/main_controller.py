@@ -58,8 +58,8 @@ class MainController:
             simulate_feedback=simulate_feedback
         )
 
-        self.period_ms: int = 100
-        self.center_rate_mm_s: float = 20.0
+        self.period_ms: int = 500  # 改为500，与GUI一致
+        self.center_rate_mm_s: float = 10.0  # 改为10.0，与GUI一致
         self.logger.info(f"控制器就绪（driver={driver_mode}, sensor={sensor_mode}, simulate={simulate_feedback}）。"
                          f"周期={self.period_ms}ms，中心速率={self.center_rate_mm_s}mm/s")
 
@@ -67,8 +67,11 @@ class MainController:
     def get_leg_data(self) -> List[LegUnit]: return self.legs
 
     def start_loop(self, period_ms: Optional[int] = None, rate_mm_s: Optional[float] = None):
-        if period_ms is not None: self.set_period_ms(period_ms)
-        if rate_mm_s is not None: self.set_center_rate(rate_mm_s)
+        # 如果传入参数，则更新；否则使用当前值
+        if period_ms is not None: 
+            self.period_ms = max(30, int(period_ms))
+        if rate_mm_s is not None: 
+            self.center_rate_mm_s = max(0.0, float(rate_mm_s))
 
         # 允许从停止/急停恢复：先尝试重连驱动
         if hasattr(self.driver, "connect"):
@@ -77,9 +80,9 @@ class MainController:
             except Exception as e:
                 self.logger.exception(e, "驱动连接失败")
 
-        # 确保控制系统使用最新参数
-        period_ms = getattr(self, 'period_ms', 500)
-        rate_mm_s = getattr(self, 'center_rate_mm_s', 10.0)
+        # 一次性设置控制系统参数（避免重复调用）
+        period_ms = self.period_ms
+        rate_mm_s = self.center_rate_mm_s
         max_single_step = rate_mm_s * (period_ms / 1000.0)
         
         self.control.update_control_params(
@@ -106,27 +109,10 @@ class MainController:
 
     def set_center_rate(self, rate_mm_s: float):
         self.center_rate_mm_s = max(0.0, float(rate_mm_s))
-        # 更新控制系统参数
-        period_ms = getattr(self, 'period_ms', 500)
-        max_single_step = self.center_rate_mm_s * (period_ms / 1000.0)
-        self.control.update_control_params(
-            period_ms=float(period_ms),
-            rate_mm_s=self.center_rate_mm_s,
-            max_single_step=max_single_step
-        )
         self.logger.info(f"更新中心下降速率：{self.center_rate_mm_s:.1f} mm/s")
 
     def set_period_ms(self, period_ms: int):
         self.period_ms = max(30, int(period_ms))
-        # 更新控制系统参数
-        rate_mm_s = getattr(self, 'center_rate_mm_s', 10.0)
-        max_single_step = rate_mm_s * (self.period_ms / 1000.0)
-        if hasattr(self, 'control'):
-            self.control.update_control_params(
-                period_ms=float(self.period_ms),
-                rate_mm_s=rate_mm_s,
-                max_single_step=max_single_step
-            )
         self.logger.info(f"更新控制周期：{self.period_ms} ms")
 
     def reset_all(self):
