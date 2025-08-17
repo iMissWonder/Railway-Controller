@@ -38,6 +38,14 @@ class ControlSystem:
         self.center_indices = list(self.estimator.center_idxs)  # 通常 [4,5,6,7]
 
         self._emergency = False
+        
+        # 初始化时设置合理的目标中心Z，避免第一次调用时步长过大
+        try:
+            current_center_z = self._get_initial_center_z()
+            self._target_center_z = current_center_z  # 初始目标等于当前值
+        except Exception:
+            self._target_center_z = 600.0  # 默认值
+            
         self.logger.info(f"控制系统初始化完成：simulate_feedback={self.simulate_feedback}")
 
     # ===== 外部接口 =====
@@ -126,8 +134,10 @@ class ControlSystem:
         n = len(self.legs)
         dz = [0.0]*n
 
-        # 1) 基础：全腿同降 base
-        base = self._clip(planned_center_delta, 0.0, MAX_STEP_Z_MM)
+        # 1) 基础：全腿同降 base，增加合理的单次步长限制
+        # 限制单次下降不超过 5mm，避免一次性下降过多
+        MAX_SINGLE_STEP = 5.0  # mm
+        base = self._clip(planned_center_delta, 0.0, min(MAX_STEP_Z_MM, MAX_SINGLE_STEP))
         for i in range(n):
             dz[i] = base
 

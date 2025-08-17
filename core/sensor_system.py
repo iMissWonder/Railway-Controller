@@ -11,7 +11,7 @@ except Exception:
 class SensorSystem:
     def __init__(self, logger: Logger, mode: str = "mock",
                  port: Optional[str] = None, baud: int = 115200,
-                 fusion_rate_hz: float = 20.0):
+                 fusion_rate_hz: float = 20.0, legs: Optional[list] = None):
         self.logger = logger
         self.mode = mode
         self.port = port
@@ -26,6 +26,10 @@ class SensorSystem:
 
         self._ser: Optional[SerialInterface] = None
         self._buf = bytearray()
+
+        # 可选：传入 LegUnit 列表引用，解析到的 z/xy 会写回到这些对象
+        self._legs = legs
+        self._lock = threading.Lock()
 
         if self.mode == "serial":
             if SerialInterface is None:
@@ -119,3 +123,21 @@ class SensorSystem:
         self._forces = raw.get("forces", self._forces)
         self._legs_z = raw.get("z", self._legs_z)
         self._legs_xy = raw.get("xy", self._legs_xy)
+
+        # 将解析到的传感器值写回 LegUnit（如果传入了 legs 引用）
+        if self._legs:
+            try:
+                with self._lock:
+                    n = min(len(self._legs), len(self._legs_z), len(self._legs_xy))
+                    for i in range(n):
+                        try:
+                            leg = self._legs[i]
+                            # 将 Z/XY 直接写回 leg（单位：mm），保持防护性赋值
+                            setattr(leg, "z", float(self._legs_z[i]))
+                            x, y = self._legs_xy[i]
+                            setattr(leg, "x", float(x))
+                            setattr(leg, "y", float(y))
+                        except Exception:
+                            pass
+            except Exception:
+                pass

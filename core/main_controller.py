@@ -39,7 +39,8 @@ class MainController:
         )
         self.sensor = SensorSystem(
             logger=self.logger, mode=sensor_mode,
-            port=sensor_port, baud=sensor_baud, fusion_rate_hz=20.0
+            port=sensor_port, baud=sensor_baud, fusion_rate_hz=20.0,
+            legs=self.legs
         )
 
         if driver_mode == "serial" and serial_port:
@@ -49,7 +50,8 @@ class MainController:
                 self.logger.warn("未提供串口端口，回退 mock 驱动")
             self.driver = build_driver("mock", legs=self.legs, logger=self.logger)
 
-        simulate_feedback = True #(driver_mode == "mock" and sensor_mode == "mock")
+        #simulate_feedback = True
+        simulate_feedback = driver_mode == "mock" and sensor_mode == "mock"
         self.control = ControlSystem(
             legs=self.legs, logger=self.logger, update_callback=self._ui_draw_proxy,
             estimator=self.estimator, sensor_system=self.sensor, driver=self.driver,

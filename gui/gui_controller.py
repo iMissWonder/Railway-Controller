@@ -129,14 +129,34 @@ class GUIController:
     # ——— 绘图与输入框刷新（仍在主线程） ———
     def _refresh(self, status_text=""):
         self.status_label.config(text=f"运行状态：{status_text}")
-        cz = sum(self.legs[i].z for i in [4,5,6,7]) / 4.0
+        
+        # 优先使用传感器系统的最新数据更新显示
+        try:
+            sensor_state = self.controller.sensor.legs_state()
+            sensor_z = sensor_state.get("z", [])
+            sensor_xy = sensor_state.get("xy", [])
+            
+            # 如果传感器有数据，用传感器数据；否则用 LegUnit 数据
+            if len(sensor_z) >= 12 and len(sensor_xy) >= 12:
+                display_z = sensor_z
+                display_xy = sensor_xy
+            else:
+                display_z = [l.z for l in self.legs]
+                display_xy = [(l.x, l.y) for l in self.legs]
+        except Exception:
+            # 传感器数据获取失败，回退到 LegUnit 数据
+            display_z = [l.z for l in self.legs]
+            display_xy = [(l.x, l.y) for l in self.legs]
+        
+        cz = sum(display_z[i] for i in [4,5,6,7]) / 4.0
         tgt = getattr(self.controller.control, '_target_center_z', None)
         tgt_txt = f"{tgt:.0f}mm" if tgt is not None else "-"
         self.center_info_label.config(text=f"目标中心Z：{tgt_txt}    实际中心Z：{cz:.0f}mm")
 
         # Z 柱状
         self.ax_z.clear(); self.ax_z.set_title("腿子Z轴高度"); self.ax_z.set_ylim(0,700)
-        names = [l.name for l in self.legs]; zvals = [l.z for l in self.legs]
+        names = [l.name for l in self.legs]
+        zvals = display_z
         bars = self.ax_z.bar(names, zvals, color='skyblue')
         for i,b in enumerate(bars):
             self.ax_z.text(b.get_x()+b.get_width()/2, b.get_height()+8, f"{zvals[i]:.0f}mm",
@@ -146,31 +166,38 @@ class GUIController:
         self.ax_xy.clear(); self.ax_xy.set_title("腿子XY坐标分布")
         self.ax_xy.set_xlabel("X (mm)"); self.ax_xy.set_ylabel("Y (mm)")
         self.ax_xy.grid(True); self.ax_xy.set_aspect('equal')
-        xs = [l.x for l in self.legs]; ys = [l.y for l in self.legs]
+        xs = [xy[0] for xy in display_xy]; ys = [xy[1] for xy in display_xy]
         self.ax_xy.scatter(xs, ys, c='red')
         for i in range(12):
-            self.ax_xy.text(self.legs[i].x, self.legs[i].y+40, str(i+1), fontsize=9, ha='center')
+            self.ax_xy.text(xs[i], ys[i]+40, str(i+1), fontsize=9, ha='center')
         for i in range(0,12,2):
-            self.ax_xy.plot([self.legs[i].x, self.legs[i+1].x],
-                            [self.legs[i].y, self.legs[i+1].y], color='gray', linestyle='--')
+            self.ax_xy.plot([xs[i], xs[i+1]], [ys[i], ys[i+1]], color='gray', linestyle='--')
 
         # 四角
         self.ax_att.clear(); self.ax_att.set_title("四角翘曲高度（相对中心Z）")
-        dzs = [self.legs[i].z - cz for i in [0,1,10,11]]
+        dzs = [display_z[i] - cz for i in [0,1,10,11]]
         self.ax_att.bar(["左前(1)", "左后(2)", "右后(11)", "右前(12)"], dzs, color='orange')
         self.ax_att.set_ylim(-100, 100)
 
-        # 受力
+        # 受力（保持原逻辑，或也可从传感器系统获取）
         self.ax_force.clear(); self.ax_force.set_title("腿子受力监测")
-        self.ax_force.bar(names, [getattr(l,"force",0.0) for l in self.legs], color='green')
+        try:
+            forces = self.controller.sensor.latest_forces()
+            force_vals = forces if len(forces) >= 12 else [getattr(l,"force",0.0) for l in self.legs]
+        except Exception:
+            force_vals = [getattr(l,"force",0.0) for l in self.legs]
+        self.ax_force.bar(names, force_vals, color='green')
         self.ax_force.set_ylim(0, 150)
 
         self.canvas.draw()
         # 输入框
         for i,(xe,ye,ze) in enumerate(self.coord_entries):
-            l = self.legs[i]
-            for e,v in ((xe,l.x),(ye,l.y),(ze,l.z)):
-                e.configure(state="normal"); e.delete(0, tk.END); e.insert(0, f"{v:.1f}"); e.configure(state="readonly")
+            # 输入框显示传感器实际值
+            x_val, y_val = display_xy[i]
+            z_val = display_z[i]
+            for e,v in ((xe,x_val),(ye,y_val),(ze,z_val)):
+                e.delete(0, tk.END)
+                e.insert(0, f"{v:.1f}")
 
     def _on_close(self):
         try: self.controller.shutdown(); self.logger.info("窗口关闭，程序退出")
