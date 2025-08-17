@@ -17,6 +17,9 @@ class GUIController:
         self.controller = controller
         self.logger = controller.logger
         self.legs = controller.get_leg_data()
+        
+        # 串口监视器窗口引用
+        self.serial_monitor_window = None
 
         self.root.title("道岔腿子控制系统（周期闭环 + 串口监视器）")
 
@@ -37,6 +40,7 @@ class GUIController:
         ttk.Button(ctr, text="停止", command=self._on_stop).pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="急停", command=self._on_emergency).pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="重置", command=self._on_reset).pack(side=tk.LEFT, padx=5)
+        ttk.Button(ctr, text="串口监视器", command=self._open_serial_monitor).pack(side=tk.LEFT, padx=5)
 
         # 图表
         fig = plt.figure(figsize=(14,10))
@@ -73,15 +77,18 @@ class GUIController:
 
         # 日志区
         logs = tk.Frame(root); logs.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        
+        # 左侧日志窗口（控制循环 - INFO外的信息）
         left_log = tk.Frame(logs); left_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        tk.Label(left_log, text="主日志").pack(anchor="w")
+        tk.Label(left_log, text="控制循环").pack(anchor="w")
         self.log_window = scrolledtext.ScrolledText(left_log, width=80, height=8, font=("宋体", 10))
         self.log_window.pack(fill=tk.BOTH, expand=True)
 
+        # 右侧日志窗口（系统运行状态 - 只显示INFO信息）
         right_log = tk.Frame(logs); right_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6,0))
-        tk.Label(right_log, text="串口监视器").pack(anchor="w")
-        self.serial_window = scrolledtext.ScrolledText(right_log, width=80, height=8, font=("Consolas", 10))
-        self.serial_window.pack(fill=tk.BOTH, expand=True)
+        tk.Label(right_log, text="系统运行状态").pack(anchor="w")
+        self.status_log_window = scrolledtext.ScrolledText(right_log, width=80, height=8, font=("宋体", 10))
+        self.status_log_window.pack(fill=tk.BOTH, expand=True)
 
         # 将 GUI 更新函数给控制器
         self.controller.update_ui = self._threadsafe_update
@@ -122,6 +129,63 @@ class GUIController:
     def _on_reset(self):
         self.controller.reset_all(); self.logger.info("系统重置完成。")
 
+    def _open_serial_monitor(self):
+        """打开串口监视器窗口"""
+        if self.serial_monitor_window and self.serial_monitor_window.winfo_exists():
+            # 如果窗口已存在，则置前显示
+            self.serial_monitor_window.lift()
+            self.serial_monitor_window.focus()
+            return
+        
+        # 创建新的串口监视器窗口
+        self.serial_monitor_window = tk.Toplevel(self.root)
+        self.serial_monitor_window.title("串口监视器")
+        self.serial_monitor_window.geometry("1000x600")
+        
+        # 创建TX和RX分离的窗口
+        main_frame = tk.Frame(self.serial_monitor_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # TX窗口
+        tx_frame = tk.Frame(main_frame)
+        tx_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tk.Label(tx_frame, text="发送 (TX)", font=("黑体", 12)).pack(anchor="w")
+        self.serial_monitor_window.tx_window = scrolledtext.ScrolledText(
+            tx_frame, width=60, height=25, font=("Consolas", 9)
+        )
+        self.serial_monitor_window.tx_window.pack(fill=tk.BOTH, expand=True)
+        
+        # RX窗口
+        rx_frame = tk.Frame(main_frame)
+        rx_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10,0))
+        tk.Label(rx_frame, text="接收 (RX)", font=("黑体", 12)).pack(anchor="w")
+        self.serial_monitor_window.rx_window = scrolledtext.ScrolledText(
+            rx_frame, width=60, height=25, font=("Consolas", 9)
+        )
+        self.serial_monitor_window.rx_window.pack(fill=tk.BOTH, expand=True)
+        
+        # 控制按钮
+        button_frame = tk.Frame(self.serial_monitor_window)
+        button_frame.pack(fill=tk.X, padx=10, pady=(0,10))
+        ttk.Button(button_frame, text="清空TX", command=lambda: self.serial_monitor_window.tx_window.delete(1.0, tk.END)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="清空RX", command=lambda: self.serial_monitor_window.rx_window.delete(1.0, tk.END)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="清空全部", command=self._clear_all_serial).pack(side=tk.LEFT, padx=5)
+        
+        # 窗口关闭事件
+        self.serial_monitor_window.protocol("WM_DELETE_WINDOW", self._close_serial_monitor)
+    
+    def _clear_all_serial(self):
+        """清空串口监视器所有内容"""
+        if self.serial_monitor_window and self.serial_monitor_window.winfo_exists():
+            self.serial_monitor_window.tx_window.delete(1.0, tk.END)
+            self.serial_monitor_window.rx_window.delete(1.0, tk.END)
+    
+    def _close_serial_monitor(self):
+        """关闭串口监视器窗口"""
+        if self.serial_monitor_window:
+            self.serial_monitor_window.destroy()
+            self.serial_monitor_window = None
+
     # ——— 线程安全 UI 更新入口 ———
     def _threadsafe_update(self, full_text, short_text):
         if self.root and self.root.winfo_exists():
@@ -129,14 +193,43 @@ class GUIController:
 
     # ——— 定时从队列取日志并写入 Text（核心修复点） ———
     def _schedule_drain_logs(self):
-        # 主日志
+        # 处理主日志队列（按级别分流）
         while not self.logger.gui_queue.empty():
             s = self.logger.gui_queue.get_nowait()
-            self.log_window.insert(tk.END, s+"\n"); self.log_window.see(tk.END)
-        # 串口监视器
+            
+            # 判断日志级别，INFO级别显示到右侧"系统运行状态"，其他显示到左侧"控制循环"
+            if "[INFO]" in s:
+                # INFO级别日志显示到系统运行状态窗口
+                self.status_log_window.insert(tk.END, s+"\n")
+                self.status_log_window.see(tk.END)
+            else:
+                # DEBUG、WARN、ERROR等其他级别显示到控制循环窗口
+                self.log_window.insert(tk.END, s+"\n")
+                self.log_window.see(tk.END)
+        
+        # 串口日志队列处理（分流TX/RX和其他内容）
         while not self.logger.serial_queue.empty():
             s = self.logger.serial_queue.get_nowait()
-            self.serial_window.insert(tk.END, s+"\n"); self.serial_window.see(tk.END)
+            
+            # 判断是否为TX/RX内容
+            if "[SERIAL:TX]" in s or "[SERIAL:RX]" in s:
+                # 如果串口监视器窗口存在，则显示到对应窗口
+                if self.serial_monitor_window and self.serial_monitor_window.winfo_exists():
+                    if "[SERIAL:TX]" in s:
+                        self.serial_monitor_window.tx_window.insert(tk.END, s+"\n")
+                        self.serial_monitor_window.tx_window.see(tk.END)
+                    elif "[SERIAL:RX]" in s:
+                        self.serial_monitor_window.rx_window.insert(tk.END, s+"\n")
+                        self.serial_monitor_window.rx_window.see(tk.END)
+            else:
+                # 非TX/RX的串口内容按级别分流
+                if "[INFO]" in s:
+                    self.status_log_window.insert(tk.END, s+"\n")
+                    self.status_log_window.see(tk.END)
+                else:
+                    self.log_window.insert(tk.END, s+"\n")
+                    self.log_window.see(tk.END)
+        
         self.root.after(DRAIN_INTERVAL_MS, self._schedule_drain_logs)
 
     # ——— 绘图与输入框刷新（仍在主线程） ———
@@ -237,7 +330,11 @@ class GUIController:
                         pass
 
     def _on_close(self):
-        try: self.controller.shutdown(); self.logger.info("窗口关闭，程序退出")
+        try: 
+            # 关闭串口监视器窗口
+            if self.serial_monitor_window:
+                self.serial_monitor_window.destroy()
+            self.controller.shutdown(); self.logger.info("窗口关闭，程序退出")
         except Exception: pass
         self.root.destroy(); sys.exit(0)
 
