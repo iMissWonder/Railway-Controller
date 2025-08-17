@@ -33,9 +33,9 @@ class GUIController:
         # 控制区
         ctr = tk.Frame(root); ctr.pack(fill=tk.X, pady=4)
         tk.Label(ctr, text="控制周期(ms)：").pack(side=tk.LEFT)
-        self.period_var = tk.IntVar(value=100); tk.Entry(ctr, textvariable=self.period_var, width=6).pack(side=tk.LEFT, padx=(0,10))
+        self.period_var = tk.IntVar(value=500); tk.Entry(ctr, textvariable=self.period_var, width=6).pack(side=tk.LEFT, padx=(0,10))
         tk.Label(ctr, text="中心下降速率(mm/s)：").pack(side=tk.LEFT)
-        self.rate_var = tk.DoubleVar(value=20.0); tk.Entry(ctr, textvariable=self.rate_var, width=6).pack(side=tk.LEFT, padx=(0,10))
+        self.rate_var = tk.DoubleVar(value=10.0); tk.Entry(ctr, textvariable=self.rate_var, width=6).pack(side=tk.LEFT, padx=(0,10))
         ttk.Button(ctr, text="开始", command=self._on_start).pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="停止", command=self._on_stop).pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="急停", command=self._on_emergency).pack(side=tk.LEFT, padx=5)
@@ -115,10 +115,23 @@ class GUIController:
 
     # ——— 按钮事件 ———
     def _on_start(self):
-        p = max(30, int(self.period_var.get())); r = max(0.0, float(self.rate_var.get()))
-        self.controller.set_period_ms(p); self.controller.set_center_rate(r)
+        period_ms = max(30, int(self.period_var.get()))
+        rate_mm_s = max(0.0, float(self.rate_var.get()))
+        
+        # 计算单次最大步长：rate_mm_s * (period_ms / 1000)
+        max_single_step = rate_mm_s * (period_ms / 1000.0)
+        
+        # 传递参数给控制系统
+        self.controller.control.update_control_params(
+            period_ms=period_ms,
+            rate_mm_s=rate_mm_s,
+            max_single_step=max_single_step
+        )
+        
+        self.controller.set_period_ms(period_ms)
+        self.controller.set_center_rate(rate_mm_s)
         self.controller.start_loop()
-        self.logger.info(f"启动闭环：period={p}ms, rate={r}mm/s")
+        self.logger.info(f"启动闭环：period={period_ms}ms, rate={rate_mm_s}mm/s, max_step={max_single_step:.2f}mm")
 
     def _on_stop(self):
         self.controller.stop_loop(); self.logger.info("停止闭环。")

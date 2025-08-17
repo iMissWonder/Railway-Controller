@@ -77,10 +77,21 @@ class MainController:
             except Exception as e:
                 self.logger.exception(e, "驱动连接失败")
 
-        self.logger.enter_stage("周期闭环", target_center_z_mm=getattr(self.control, "_target_center_z", None))
-        self.control.set_center_rate(self.center_rate_mm_s)
-        self.control.start_loop(self.period_ms)
-        self.logger.info(f"控制循环启动：period={self.period_ms}ms, rate={self.center_rate_mm_s}mm/s")
+        # 确保控制系统使用最新参数
+        period_ms = getattr(self, 'period_ms', 500)
+        rate_mm_s = getattr(self, 'center_rate_mm_s', 10.0)
+        max_single_step = rate_mm_s * (period_ms / 1000.0)
+        
+        self.control.update_control_params(
+            period_ms=float(period_ms),
+            rate_mm_s=rate_mm_s,
+            max_single_step=max_single_step
+        )
+        
+        self.control.start_loop(int(self.period_ms))
+        cz = self.get_current_center_z()
+        self.logger.enter_stage("周期闭环", target_center_z_mm=cz-100)
+        self.logger.info("控制循环启动。")
 
     def stop_loop(self):
         self.control.stop_loop()
@@ -95,11 +106,27 @@ class MainController:
 
     def set_center_rate(self, rate_mm_s: float):
         self.center_rate_mm_s = max(0.0, float(rate_mm_s))
-        self.control.set_center_rate(self.center_rate_mm_s)
+        # 更新控制系统参数
+        period_ms = getattr(self, 'period_ms', 500)
+        max_single_step = self.center_rate_mm_s * (period_ms / 1000.0)
+        self.control.update_control_params(
+            period_ms=float(period_ms),
+            rate_mm_s=self.center_rate_mm_s,
+            max_single_step=max_single_step
+        )
         self.logger.info(f"更新中心下降速率：{self.center_rate_mm_s:.1f} mm/s")
 
     def set_period_ms(self, period_ms: int):
         self.period_ms = max(30, int(period_ms))
+        # 更新控制系统参数
+        rate_mm_s = getattr(self, 'center_rate_mm_s', 10.0)
+        max_single_step = rate_mm_s * (self.period_ms / 1000.0)
+        if hasattr(self, 'control'):
+            self.control.update_control_params(
+                period_ms=float(self.period_ms),
+                rate_mm_s=rate_mm_s,
+                max_single_step=max_single_step
+            )
         self.logger.info(f"更新控制周期：{self.period_ms} ms")
 
     def reset_all(self):
