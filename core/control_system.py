@@ -330,14 +330,18 @@ class ControlSystem:
             # 计算理论几何中心
             geo_result = compute_center_and_theory(snap)
             
-            # 计算理论Y中心（对称腿对平均）
+            # 计算理论Y中心（只使用腿对(1,2)）
             cy = 0.0
-            valid_pairs = 0
-            for i in range(1, 13, 2):
-                if i in snap.y_meas and (i+1) in snap.y_meas:
-                    cy += (snap.y_meas[i] + snap.y_meas[i+1]) / 2.0
-                    valid_pairs += 1
-            cy = cy / max(1, valid_pairs)
+            if 1 in snap.y_meas and 2 in snap.y_meas:
+                cy = (snap.y_meas[1] + snap.y_meas[2]) / 2.0
+            else:
+                # 如果腿对(1,2)数据不可用，回退到所有腿对平均
+                valid_pairs = 0
+                for i in range(1, 13, 2):
+                    if i in snap.y_meas and (i+1) in snap.y_meas:
+                        cy += (snap.y_meas[i] + snap.y_meas[i+1]) / 2.0
+                        valid_pairs += 1
+                cy = cy / max(1, valid_pairs)
             
             return (geo_result.Xc, cy)
             

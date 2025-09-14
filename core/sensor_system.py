@@ -61,6 +61,7 @@ class SensorSystem:
     # 查询
     def estimate_center(self) -> Tuple[float, float, float]: 
         """返回估计的几何中心（融合几何计算结果）"""
+        self._update_geometric_center()  # 确保每次调用都更新几何中心
         return self._geometric_center_cache
 
     def estimate_attitude(self) -> Tuple[float, float, float]: return self._att
@@ -83,14 +84,18 @@ class SensorSystem:
             cx = geo_result.Xc
             cz = geo_result.Zc
             
-            # 计算Y中心（对称腿对平均）
+            # 计算Y中心（只使用腿对(1,2)）
             cy = 0.0
-            valid_pairs = 0
-            for i in range(1, 13, 2):
-                if i in snap.y_meas and (i+1) in snap.y_meas:
-                    cy += (snap.y_meas[i] + snap.y_meas[i+1]) / 2.0
-                    valid_pairs += 1
-            cy = cy / max(1, valid_pairs)
+            if 1 in snap.y_meas and 2 in snap.y_meas:
+                cy = (snap.y_meas[1] + snap.y_meas[2]) / 2.0
+            else:
+                # 如果腿对(1,2)数据不可用，回退到所有腿对平均
+                valid_pairs = 0
+                for i in range(1, 13, 2):
+                    if i in snap.y_meas and (i+1) in snap.y_meas:
+                        cy += (snap.y_meas[i] + snap.y_meas[i+1]) / 2.0
+                        valid_pairs += 1
+                cy = cy / max(1, valid_pairs)
             
             self._geometric_center_cache = (cx, cy, cz)
             
@@ -255,7 +260,16 @@ class SensorSystem:
     def _fuse(self, raw: Dict[str, Any]):
         z = raw.get("z", self._legs_z)
         cz = (z[4] + z[5] + z[6] + z[7]) / 4.0 if len(z) >= 8 else 0.0
+        
+        # 计算几何中心XY（使用与_update_geometric_center相同的逻辑）
         cx, cy = 0.0, 0.0
+        if hasattr(self, '_legs') and self._legs and len(self._legs) >= 2:
+            # 使用腿对(1,2)计算Yc
+            try:
+                cy = (self._legs[0].y + self._legs[1].y) / 2.0  # 腿子1,2对应索引0,1
+            except:
+                cy = 0.0
+        
         self._center = (cx, cy, cz)
         self._att = raw.get("att", self._att)
         self._forces = raw.get("forces", self._forces)
