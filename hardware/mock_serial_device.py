@@ -59,31 +59,25 @@ class MockSerialDevice:
         # 遥测间隔（秒）
         self._telem_interval = float(telemetry_interval)
 
-    # ——— 初始化XY分布（上排 1/3/5/7/9/11， 下排 2/4/6/8/10/12）———
+    # ——— 初始化XY分布（固定道岔腿子坐标）———
     def _default_xy(self):
-        xy = []
-        x_positions = [-8700, -8700, -6200, -6200, -3000, -3000, 0, 0, 3000, 3000, 6200, 6200]
-        upper_base = random.uniform(760, 820)
-        upper_offsets = [random.uniform(-40, 40) for _ in range(6)]
-        upper_y = [upper_base + off for off in upper_offsets]
-        gaps = [1450 + i * (2600 - 1450) / 5.0 for i in range(6)]
-        for k in range(6):
-            top_y = upper_y[k]
-            bot_y = top_y - gaps[k] + random.uniform(-30, 30)
-            xy.append((x_positions[2*k],   top_y))
-            xy.append((x_positions[2*k+1], bot_y))
-
-        # 将坐标整体平移，使 1 号腿（索引0）成为原点 (0,0)
-        x0, y0 = xy[0]
-        shift_x = -x0
-        shift_y = -y0
-        # 添加小扰动（±5 mm），并将 Y 方向取反（向下为正）
-        xy_shifted = []
-        for x, y in xy:
-            nx = x + shift_x + random.uniform(-5.0, 5.0)
-            ny = -(y + shift_y) + random.uniform(-5.0, 5.0)
-            xy_shifted.append((nx, ny))
-        return xy_shifted  # 长度12，索引0..11
+        # 使用固定的道岔腿子坐标配置
+        fixed_positions = [
+            (0.0, 0.0),         # 腿子1
+            (0.0, 171.7),       # 腿子2
+            (489.9, 0.0),       # 腿子3
+            (490.0, 182.3),     # 腿子4
+            (969.9, 0.0),       # 腿子5
+            (970.0, 197.1),     # 腿子6
+            (1449.9, 0.0),      # 腿子7
+            (1449.7, 223.1),    # 腿子8
+            (1929.9, 0.0),      # 腿子9
+            (1930.0, 262.6),    # 腿子10
+            (2409.9, 0.0),      # 腿子11
+            (2410.0, 311.6)     # 腿子12
+        ]
+        
+        return fixed_positions  # 长度12，索引0..11
 
     # ——— 对外入口 ———
     def start(self):

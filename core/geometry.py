@@ -43,12 +43,15 @@ class GeometryResult:
     # [( (i,j), Xc_ij, weight_ij ), ...] 便于日志/诊断
 
 def _pair_weight(i: LegId, j: LegId, snap: SensorSnapshot) -> float:
-    """对某一对腿的置信权重：健康腿加成、受力不过限者加成（可按需细化）"""
-    base = 1.0
+    """对某一对腿的置信权重：特殊配置让腿对(1,2)权重最高，其他为0"""
     if not (snap.healthy.get(i, False) and snap.healthy.get(j, False)):
         return 0.0
-    # 可按力传感器做软权重：受力越接近目标越高权
-    return base
+    
+    # 特殊权重配置：只有腿对(1,2)有权重，其他腿对权重为0
+    if (i == 1 and j == 2) or (i == 2 and j == 1):
+        return 1.0  # 腿对(1,2)的权重最高
+    else:
+        return 0.0  # 其他腿对权重为0
 
 def compute_geometric_center_Xc(snap: SensorSnapshot) -> Tuple[float, List[Tuple[Tuple[LegId,LegId], float, float]]]:
     """

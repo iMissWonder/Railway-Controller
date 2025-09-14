@@ -134,43 +134,41 @@ class MainController:
             except Exception: pass
 
     def _generate_leg_positions(self, xy_only: bool = False):
-        x_positions = [-8700, -8700, -6200, -6200, -3000, -3000,
-                       0, 0, 3000, 3000, 6200, 6200]
-        upper_base = random.uniform(760, 820)
-        upper_offsets = [random.uniform(-40, 40) for _ in range(6)]
-        upper_y = [upper_base + off for off in upper_offsets]
-        gaps = [1450 + i * (2600 - 1450) / 5.0 for i in range(6)]
-        up_idx = [0,2,4,6,8,10]; lo_idx = [1,3,5,7,9,11]
+        # 固定的腿子坐标配置
+        fixed_positions = [
+            (0.0, 0.0),         # 腿子1
+            (0.0, 171.7),       # 腿子2
+            (489.9, 0.0),       # 腿子3
+            (490.0, 182.3),     # 腿子4
+            (969.9, 0.0),       # 腿子5
+            (970.0, 197.1),     # 腿子6
+            (1449.9, 0.0),      # 腿子7
+            (1449.7, 223.1),    # 腿子8
+            (1929.9, 0.0),      # 腿子9
+            (1930.0, 262.6),    # 腿子10
+            (2409.9, 0.0),      # 腿子11
+            (2410.0, 311.6)     # 腿子12
+        ]
 
-        # 先按原逻辑生成坐标（未平移/扰动）
-        tmp_xy = [(0.0, 0.0)] * 12
-        for k in range(6):
-            ui, li = up_idx[k], lo_idx[k]
-            top_y = upper_y[k]
-            bot_y = top_y - gaps[k] + random.uniform(-30, 30)
-            tmp_xy[ui] = (x_positions[ui], top_y)
-            tmp_xy[li] = (x_positions[li], bot_y)
+        # 理论中心位置 (理论上应该是 1144.3, 85.0)
+        self.theoretical_center_x = 1144.3
+        self.theoretical_center_y = 85.0
 
-        # 平移使 1 号腿 (index 0) 为原点 (0,0)
-        x0, y0 = tmp_xy[0]
-        shift_x = -x0
-        shift_y = -y0
-
-        # 应用平移并加入 ±5mm 的微扰，再写回 legs（或 reset）
-        for i, (x, y) in enumerate(tmp_xy):
-            nx = x + shift_x + random.uniform(-5.0, 5.0)
-            ny = -(y + shift_y) + random.uniform(-5.0, 5.0)  # Y 向下为正
+        # 直接使用固定坐标设置每个腿的位置
+        for i in range(12):
+            x, y = fixed_positions[i]
             if not xy_only:
                 # 若包含 Z/init 等，保留原逻辑对 z 的设置
                 self.legs[i].reset_random() if hasattr(self.legs[i], "reset_random") else None
-                self.legs[i].x = nx
-                self.legs[i].y = ny
+                self.legs[i].x = x
+                self.legs[i].y = y
                 # 保持原有 z 初始化策略（若有）不变
             else:
-                self.legs[i].x = nx
-                self.legs[i].y = ny
+                self.legs[i].x = x
+                self.legs[i].y = y
 
-        self.logger.info("已生成符合要求的腿子 XY 初始坐标（1号腿为原点，XY扰动±5mm）。")
+        self.logger.info("已设置固定的腿子 XY 坐标（理论中心: {:.1f}, {:.1f}）。".format(
+            self.theoretical_center_x, self.theoretical_center_y))
 
     def get_current_center_z(self) -> float:
         try:

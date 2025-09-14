@@ -11,19 +11,28 @@ class LegUnit:
         self.status = "未初始化"
 
     def reset(self):
-        # 模拟道岔布置规则（XY、Z）
+        # 使用固定的道岔腿子坐标配置
         self.status = "初始化"
-        x_positions = [-8700, -8700, -6200, -6200, -3000, -3000,
-                       0, 0, 3000, 3000, 6200, 6200]
+        fixed_positions = [
+            (0.0, 0.0),         # 腿子1
+            (0.0, 171.7),       # 腿子2
+            (489.9, 0.0),       # 腿子3
+            (490.0, 182.3),     # 腿子4
+            (969.9, 0.0),       # 腿子5
+            (970.0, 197.1),     # 腿子6
+            (1449.9, 0.0),      # 腿子7
+            (1449.7, 223.1),    # 腿子8
+            (1929.9, 0.0),      # 腿子9
+            (1930.0, 262.6),    # 腿子10
+            (2409.9, 0.0),      # 腿子11
+            (2410.0, 311.6)     # 腿子12
+        ]
+        
         i = self.id - 1
-        self.x = x_positions[i]
-
-        base_upper_y = random.uniform(800, 900)
-        gap_step = 1450 + (i // 2) * (2600 - 1450) / 5
-        if i % 2 == 0:
-            self.y = base_upper_y + random.uniform(-50, 50)
+        if 0 <= i < len(fixed_positions):
+            self.x, self.y = fixed_positions[i]
         else:
-            self.y = base_upper_y - gap_step + random.uniform(-50, 50)
+            self.x, self.y = 0.0, 0.0
 
         self.z = 600 + random.uniform(-20, 20)
         self.force = 0.0
@@ -32,29 +41,27 @@ def create_legs(n=12):
     return [LegUnit(i + 1) for i in range(n)]
 
 def generate_leg_positions(legs):
-    import random
-    x_positions = [-8700, -8700, -6200, -6200, -3000, -3000,
-                   0, 0, 3000, 3000, 6200, 6200]
+    # 使用固定的道岔腿子坐标配置
+    fixed_positions = [
+        (0.0, 0.0),         # 腿子1
+        (0.0, 171.7),       # 腿子2
+        (489.9, 0.0),       # 腿子3
+        (490.0, 182.3),     # 腿子4
+        (969.9, 0.0),       # 腿子5
+        (970.0, 197.1),     # 腿子6
+        (1449.9, 0.0),      # 腿子7
+        (1449.7, 223.1),    # 腿子8
+        (1929.9, 0.0),      # 腿子9
+        (1930.0, 262.6),    # 腿子10
+        (2409.9, 0.0),      # 腿子11
+        (2410.0, 311.6)     # 腿子12
+    ]
 
-    base_upper_y = random.uniform(760, 820)
-    upper_y_values = [base_upper_y + random.uniform(-40, 40) for _ in range(6)]
-    gap_steps = [1450 + i * (2600 - 1450) / 5 for i in range(6)]
-
-    tmp_xy = [(0.0, 0.0)] * 12
-    for i in range(6):
-        leg_left = legs[i * 2]
-        leg_right = legs[i * 2 + 1]
-        top_y = upper_y_values[i]
-        bot_y = top_y - gap_steps[i] + random.uniform(-30, 30)
-        tmp_xy[i * 2] = (x_positions[i * 2], top_y)
-        tmp_xy[i * 2 + 1] = (x_positions[i * 2 + 1], bot_y)
-
-    # 平移使1号腿成为(0,0)，并加入 ±5mm 微扰，Y 向下为正
-    x0, y0 = tmp_xy[0]
-    shift_x = -x0
-    shift_y = -y0
-    for idx, (x, y) in enumerate(tmp_xy):
-        legs[idx].x = x + shift_x + random.uniform(-5.0, 5.0)
-        legs[idx].y = -(y + shift_y) + random.uniform(-5.0, 5.0)
-        legs[idx].z = 600 + random.uniform(-20, 20)
-        legs[idx].status = "初始化"
+    # 直接使用固定坐标设置每个腿的位置
+    for idx, leg in enumerate(legs):
+        if idx < len(fixed_positions):
+            leg.x, leg.y = fixed_positions[idx]
+        else:
+            leg.x, leg.y = 0.0, 0.0
+        leg.z = 600 + random.uniform(-20, 20)
+        leg.status = "初始化"
