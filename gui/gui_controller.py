@@ -28,6 +28,11 @@ class GUIController:
         # 模拟硬件进程引用
         self.mock_device_process = None
         
+        # 单腿控制相关变量
+        self.single_leg_window = None
+        self.selected_leg_index = 0  # 默认选择腿子1（索引0）
+        self.leg_colors = ['red'] * 12  # 所有腿子初始为红色
+        
         # 受力模拟相关变量
         import time
         self.force_simulation_active = False
@@ -46,6 +51,12 @@ class GUIController:
         # 中心信息显示（合并所有中心信息）
         self.center_info_label = tk.Label(top, text="目标中心Z：-  实际中心：-  几何中心：-", font=("宋体", 20))
         self.center_info_label.pack(side=tk.RIGHT, padx=10)
+        
+        # 单腿控制按钮单独一行
+        single_leg_frame = tk.Frame(root)
+        single_leg_frame.pack(fill=tk.X, pady=4)
+        ttk.Button(single_leg_frame, text="单腿控制", command=self._open_single_leg_control, 
+                  style="ExtraLarge.TButton").pack(side=tk.RIGHT, padx=10)
 
         # 模拟硬件控制区域
         hardware_frame = tk.Frame(root)
@@ -92,6 +103,8 @@ class GUIController:
         # 配置按钮样式
         style = ttk.Style()
         style.configure("Large.TButton", font=("宋体", 13))
+        style.configure("Selected.TButton", font=("宋体", 13), background="lightgreen")
+        style.configure("ExtraLarge.TButton", font=("宋体", 24), padding=(20, 10))
         
         self.mock_device_btn = ttk.Button(hardware_buttons_frame, text="启动模拟硬件", command=self._toggle_mock_device, style="Large.TButton")
         self.mock_device_btn.pack(side=tk.LEFT, padx=5)
@@ -242,6 +255,201 @@ class GUIController:
         self._stop_force_simulation()
         
         self.controller.reset_all(); self.logger.info("系统重置完成。")
+
+    def _open_single_leg_control(self):
+        """打开单腿控制窗口"""
+        if self.single_leg_window and self.single_leg_window.winfo_exists():
+            # 如果窗口已存在，则置前显示
+            self.single_leg_window.lift()
+            return
+            
+        # 创建单腿控制窗口
+        self.single_leg_window = tk.Toplevel(self.root)
+        self.single_leg_window.title("单腿控制")
+        self.single_leg_window.geometry("1200x800")
+        
+        # 设置选中第一个腿子（默认腿子1）
+        self.selected_leg_index = 0
+        self.leg_colors[0] = 'green'
+        self._update_main_display()
+        
+        # 创建单腿控制界面内容
+        self._create_single_leg_interface()
+        
+        # 窗口关闭时的处理
+        def on_close():
+            # 恢复所有腿子颜色为红色
+            self.leg_colors = ['red'] * 12
+            self._update_main_display()
+            self.single_leg_window.destroy()
+            self.single_leg_window = None
+            
+        self.single_leg_window.protocol("WM_DELETE_WINDOW", on_close)
+
+    def _create_single_leg_interface(self):
+        """创建单腿控制界面内容"""
+        # 主框架
+        main_frame = tk.Frame(self.single_leg_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 左侧60%区域：单腿子模型展示
+        left_frame = tk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        left_frame.config(width=int(1200*0.6))
+        
+        # 左侧标题
+        tk.Label(left_frame, text="单腿子模型展示", font=("黑体", 20)).pack(pady=10)
+        
+        # 创建单腿图表
+        self.single_leg_fig = plt.figure(figsize=(8, 10))
+        
+        # 单个腿子的详细视图
+        self.single_leg_ax = self.single_leg_fig.add_subplot(111)
+        self.single_leg_canvas = FigureCanvasTkAgg(self.single_leg_fig, master=left_frame)
+        self.single_leg_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # 右侧40%区域：控制布局
+        right_frame = tk.Frame(main_frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(20, 0))
+        right_frame.config(width=int(1200*0.4))
+        
+        # 右侧标题
+        tk.Label(right_frame, text="单腿控制", font=("黑体", 20)).pack(pady=10)
+        
+        # 十字键控制区域
+        self._create_cross_control(right_frame)
+        
+        # 腿子选择按钮区域
+        self._create_leg_selection(right_frame)
+        
+        # 初始更新显示
+        self._update_single_leg_display()
+
+    def _create_cross_control(self, parent):
+        """创建十字键控制区域"""
+        control_frame = tk.Frame(parent)
+        control_frame.pack(pady=20)
+        
+        tk.Label(control_frame, text="方向控制", font=("黑体", 16)).pack(pady=10)
+        
+        # 十字键布局框架
+        cross_frame = tk.Frame(control_frame)
+        cross_frame.pack(pady=10)
+        
+        # 创建3x3网格布局
+        # 第一行：空、上、空
+        tk.Label(cross_frame, text="", width=8).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Button(cross_frame, text="↑\n上", command=lambda: self._move_leg('up'), style="Large.TButton", width=8).grid(row=0, column=1, padx=5, pady=5)
+        tk.Label(cross_frame, text="", width=8).grid(row=0, column=2, padx=5, pady=5)
+        
+        # 第二行：左、中心显示、右
+        ttk.Button(cross_frame, text="←\n左", command=lambda: self._move_leg('left'), style="Large.TButton", width=8).grid(row=1, column=0, padx=5, pady=5)
+        self.current_leg_label = tk.Label(cross_frame, text=f"腿子{self.selected_leg_index+1}", font=("黑体", 16), 
+                                         bg="lightgray", width=8, height=3, relief=tk.RAISED)
+        self.current_leg_label.grid(row=1, column=1, padx=5, pady=5)
+        ttk.Button(cross_frame, text="→\n右", command=lambda: self._move_leg('right'), style="Large.TButton", width=8).grid(row=1, column=2, padx=5, pady=5)
+        
+        # 第三行：空、下、空
+        tk.Label(cross_frame, text="", width=8).grid(row=2, column=0, padx=5, pady=5)
+        ttk.Button(cross_frame, text="↓\n下", command=lambda: self._move_leg('down'), style="Large.TButton", width=8).grid(row=2, column=1, padx=5, pady=5)
+        tk.Label(cross_frame, text="", width=8).grid(row=2, column=2, padx=5, pady=5)
+
+    def _create_leg_selection(self, parent):
+        """创建腿子选择按钮区域"""
+        selection_frame = tk.Frame(parent)
+        selection_frame.pack(pady=20, fill=tk.BOTH, expand=True)
+        
+        tk.Label(selection_frame, text="腿子选择", font=("黑体", 16)).pack(pady=10)
+        
+        # 创建12个腿子选择按钮，4行3列布局
+        buttons_frame = tk.Frame(selection_frame)
+        buttons_frame.pack(pady=10)
+        
+        self.leg_buttons = []
+        for i in range(12):
+            row = i // 3
+            col = i % 3
+            btn = ttk.Button(buttons_frame, text=f"腿子{i+1}", 
+                           command=lambda idx=i: self._select_leg(idx), 
+                           style="Large.TButton", width=10)
+            btn.grid(row=row, column=col, padx=5, pady=5)
+            self.leg_buttons.append(btn)
+        
+        # 更新按钮状态
+        self._update_leg_buttons()
+
+    def _select_leg(self, leg_index):
+        """选择指定的腿子"""
+        # 恢复之前选中腿子的颜色
+        self.leg_colors[self.selected_leg_index] = 'red'
+        
+        # 设置新选中的腿子
+        self.selected_leg_index = leg_index
+        self.leg_colors[leg_index] = 'green'
+        
+        # 更新界面显示
+        self.current_leg_label.config(text=f"腿子{leg_index+1}")
+        self._update_leg_buttons()
+        self._update_single_leg_display()
+        self._update_main_display()
+
+    def _update_leg_buttons(self):
+        """更新腿子选择按钮的状态"""
+        for i, btn in enumerate(self.leg_buttons):
+            if i == self.selected_leg_index:
+                btn.config(style="Selected.TButton")
+            else:
+                btn.config(style="Large.TButton")
+
+    def _move_leg(self, direction):
+        """移动选中的腿子"""
+        # 这里可以添加实际的腿子移动控制逻辑
+        leg_num = self.selected_leg_index + 1
+        self.logger.info(f"移动腿子{leg_num}向{direction}")
+        
+    def _update_single_leg_display(self):
+        """更新单腿显示"""
+        if not hasattr(self, 'single_leg_ax'):
+            return
+            
+        # 清空并重绘单腿图表
+        self.single_leg_ax.clear()
+        self.single_leg_ax.set_title(f"腿子{self.selected_leg_index+1}详细视图", fontsize=16)
+        
+        # 获取选中腿子的数据
+        try:
+            leg = self.legs[self.selected_leg_index]
+            x_pos = getattr(leg, 'x', 0.0)
+            y_pos = getattr(leg, 'y', 0.0)
+            z_pos = getattr(leg, 'z', 0.0)
+            force = getattr(leg, 'force', 0.0)
+            
+            # 绘制腿子位置和状态信息
+            self.single_leg_ax.text(0.5, 0.8, f"位置: ({x_pos:.1f}, {y_pos:.1f}, {z_pos:.1f})", 
+                                  transform=self.single_leg_ax.transAxes, fontsize=14, ha='center')
+            self.single_leg_ax.text(0.5, 0.7, f"受力: {force:.1f} N", 
+                                  transform=self.single_leg_ax.transAxes, fontsize=14, ha='center')
+            
+            # 简单的腿子图形表示
+            self.single_leg_ax.scatter([0], [0], c='green' if self.leg_colors[self.selected_leg_index] == 'green' else 'red', 
+                                     s=500, marker='o', edgecolors='black', linewidth=2)
+            self.single_leg_ax.text(0, -0.1, f"腿子{self.selected_leg_index+1}", ha='center', fontsize=16, fontweight='bold')
+            
+            self.single_leg_ax.set_xlim(-1, 1)
+            self.single_leg_ax.set_ylim(-1, 1)
+            self.single_leg_ax.set_aspect('equal')
+            
+        except Exception as e:
+            self.single_leg_ax.text(0.5, 0.5, f"数据加载错误: {e}", 
+                                  transform=self.single_leg_ax.transAxes, fontsize=12, ha='center')
+        
+        self.single_leg_canvas.draw()
+
+    def _update_main_display(self):
+        """更新主界面显示"""
+        # 触发主界面的刷新，以显示腿子颜色变化
+        if hasattr(self, '_refresh'):
+            self._refresh()
 
     def _open_serial_monitor(self):
         """打开串口监视器窗口"""
@@ -519,9 +727,14 @@ class GUIController:
         self.ax_xy.set_xlim(-100, 2500)
         self.ax_xy.set_ylim(-20, 350)
         
-        # 画腿子位置 - 放大显示
+        # 画腿子位置 - 支持不同颜色显示
         xs = [xy[0] for xy in display_xy]; ys = [xy[1] for xy in display_xy]
-        self.ax_xy.scatter(xs, ys, c='red', s=120, marker='o', label='腿子位置', edgecolors='black', linewidth=1)
+        
+        # 根据腿子颜色状态分别绘制
+        for i in range(12):
+            color = self.leg_colors[i] if hasattr(self, 'leg_colors') else 'red'
+            self.ax_xy.scatter([xs[i]], [ys[i]], c=color, s=120, marker='o', 
+                             edgecolors='black', linewidth=1)
         
         # 标注腿子编号 - 放大字体
         for i in range(12):
@@ -545,7 +758,24 @@ class GUIController:
                            color='red', linestyle='-', linewidth=0.8, alpha=0.8, label='中心偏差')
 
         # 添加图例 - 放大字体
-        self.ax_xy.legend(loc='upper right', fontsize=12)
+        # 创建颜色图例
+        import matplotlib.patches as mpatches
+        red_patch = mpatches.Patch(color='red', label='普通腿子')
+        green_patch = mpatches.Patch(color='green', label='选中腿子')
+        
+        # 原有的图例
+        legend_elements = [red_patch, green_patch]
+        
+        # 添加中心点的图例
+        current_center_patch = mpatches.Patch(color='blue', label=f'当前几何中心 ({current_cx:.1f}, {current_cy:.1f})')
+        theory_center_patch = mpatches.Patch(color='green', label=f'理论几何中心 ({theory_cx:.1f}, {theory_cy:.1f})')
+        legend_elements.extend([current_center_patch, theory_center_patch])
+        
+        if abs(current_cx - theory_cx) > 1 or abs(current_cy - theory_cy) > 1:
+            deviation_patch = mpatches.Patch(color='red', label='中心偏差')
+            legend_elements.append(deviation_patch)
+        
+        self.ax_xy.legend(handles=legend_elements, loc='upper right', fontsize=12)
 
         # 四角翘曲图 - 调整为小图显示
         self.ax_att.clear(); self.ax_att.set_title("四角翘曲", fontsize=20)
