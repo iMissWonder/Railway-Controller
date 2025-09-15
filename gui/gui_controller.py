@@ -27,6 +27,14 @@ class GUIController:
         
         # 模拟硬件进程引用
         self.mock_device_process = None
+        
+        # 受力模拟相关变量
+        import time
+        self.force_simulation_active = False
+        self.force_start_time = 0.0
+        self.force_base_values = [0.0] * 12  # 基础受力值
+        self.force_target_values = [0.0] * 12  # 目标受力值
+        self.force_current_values = [0.0] * 12  # 当前受力值
 
         self.root.title("道岔腿子控制系统")
 
@@ -96,7 +104,7 @@ class GUIController:
         tk.Label(ctr, text="控制周期(ms)：", font=("宋体", 13)).pack(side=tk.LEFT)
         self.period_var = tk.IntVar(value=500); tk.Entry(ctr, textvariable=self.period_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
         tk.Label(ctr, text="中心下降速率(mm/s)：", font=("宋体", 13)).pack(side=tk.LEFT)
-        self.rate_var = tk.DoubleVar(value=10.0); tk.Entry(ctr, textvariable=self.rate_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
+        self.rate_var = tk.DoubleVar(value=50.0); tk.Entry(ctr, textvariable=self.rate_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
         ttk.Button(ctr, text="开始", command=self._on_start, style="Large.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="停止", command=self._on_stop, style="Large.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="急停", command=self._on_emergency, style="Large.TButton").pack(side=tk.LEFT, padx=5)
@@ -187,6 +195,9 @@ class GUIController:
 
         # 初始绘图
         self._refresh(status_text="初始化完成")
+        
+        # 启动受力模拟定时器
+        self._start_force_simulation_timer()
 
         # 在窗口关闭时停止模拟硬件
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -205,6 +216,9 @@ class GUIController:
         period_ms = max(30, int(self.period_var.get()))
         rate_mm_s = max(0.0, float(self.rate_var.get()))
         
+        # 启动受力模拟
+        self._start_force_simulation()
+        
         # 只通过MainController的set方法设置参数（它们内部会调用update_control_params）
         self.controller.set_period_ms(period_ms)
         self.controller.set_center_rate(rate_mm_s)
@@ -212,12 +226,21 @@ class GUIController:
         self.logger.info(f"启动闭环：period={period_ms}ms, rate={rate_mm_s}mm/s")
 
     def _on_stop(self):
+        # 停止受力模拟
+        self._stop_force_simulation()
+        
         self.controller.stop_loop(); self.logger.info("停止闭环。")
 
     def _on_emergency(self):
+        # 紧急停止时立即停止受力模拟
+        self._stop_force_simulation()
+        
         self.controller.emergency_stop(); self.logger.error("⚠️ 急停已触发。")
 
     def _on_reset(self):
+        # 重置时停止受力模拟
+        self._stop_force_simulation()
+        
         self.controller.reset_all(); self.logger.info("系统重置完成。")
 
     def _open_serial_monitor(self):
@@ -240,18 +263,18 @@ class GUIController:
         # TX窗口
         tx_frame = tk.Frame(main_frame)
         tx_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        tk.Label(tx_frame, text="发送 (TX)", font=("黑体", 12)).pack(anchor="w")
+        tk.Label(tx_frame, text="发送 (TX)", font=("黑体", 16)).pack(anchor="w")
         self.serial_monitor_window.tx_window = scrolledtext.ScrolledText(
-            tx_frame, width=60, height=25, font=("Consolas", 9)
+            tx_frame, width=60, height=25, font=("Consolas", 13)
         )
         self.serial_monitor_window.tx_window.pack(fill=tk.BOTH, expand=True)
         
         # RX窗口
         rx_frame = tk.Frame(main_frame)
         rx_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10,0))
-        tk.Label(rx_frame, text="接收 (RX)", font=("黑体", 12)).pack(anchor="w")
+        tk.Label(rx_frame, text="接收 (RX)", font=("黑体", 16)).pack(anchor="w")
         self.serial_monitor_window.rx_window = scrolledtext.ScrolledText(
-            rx_frame, width=60, height=25, font=("Consolas", 9)
+            rx_frame, width=60, height=25, font=("Consolas", 13)
         )
         self.serial_monitor_window.rx_window.pack(fill=tk.BOTH, expand=True)
         
@@ -442,23 +465,9 @@ class GUIController:
     def _refresh(self, status_text=""):
         self.status_label.config(text=f"运行状态：{status_text}")
         
-        # 优先使用传感器系统的最新数据更新显示
-        try:
-            sensor_state = self.controller.sensor.legs_state()
-            sensor_z = sensor_state.get("z", [])
-            sensor_xy = sensor_state.get("xy", [])
-            
-            # 如果传感器有数据，用传感器数据；否则用 LegUnit 数据
-            if len(sensor_z) >= 12 and len(sensor_xy) >= 12:
-                display_z = sensor_z
-                display_xy = sensor_xy
-            else:
-                display_z = [l.z for l in self.legs]
-                display_xy = [(l.x, l.y) for l in self.legs]
-        except Exception:
-            # 传感器数据获取失败，回退到 LegUnit 数据
-            display_z = [l.z for l in self.legs]
-            display_xy = [(l.x, l.y) for l in self.legs]
+        # 直接使用LegUnit数据，确保显示的是控制器实际使用的数据
+        display_z = [l.z for l in self.legs]
+        display_xy = [(l.x, l.y) for l in self.legs]
         
         # 获取各种中心点信息
         cz = sum(display_z[i] for i in [4,5,6,7]) / 4.0  # 实际中心Z
@@ -554,8 +563,13 @@ class GUIController:
         # 受力监测图 - 调整为小图显示
         self.ax_force.clear(); self.ax_force.set_title("受力监测", fontsize=20)
         try:
-            forces = self.controller.sensor.latest_forces()
-            force_vals = forces if len(forces) >= 12 else [getattr(l,"force",0.0) for l in self.legs]
+            # 优先使用GUI模拟的受力值
+            if hasattr(self, 'force_current_values') and self.force_current_values:
+                force_vals = self.force_current_values
+            else:
+                # 回退到传感器数据
+                forces = self.controller.sensor.latest_forces()
+                force_vals = forces if len(forces) >= 12 else [getattr(l,"force",0.0) for l in self.legs]
         except Exception:
             force_vals = [getattr(l,"force",0.0) for l in self.legs]
         self.ax_force.bar(names, force_vals, color='green')
@@ -589,6 +603,75 @@ class GUIController:
                 ze.config(state="readonly")
             except Exception:
                 pass
+
+    # ——— 受力模拟相关方法 ———
+    def _start_force_simulation_timer(self):
+        """启动受力模拟定时器"""
+        self._update_force_simulation()
+    
+    def _start_force_simulation(self):
+        """启动受力模拟"""
+        import time
+        self.force_simulation_active = True
+        self.force_start_time = time.time()
+        
+        # 设置目标受力值（在正常工作范围内，带有一些差异）
+        import random
+        base_force = 95.0  # 基础受力值
+        for i in range(12):
+            # 每个腿子有不同的基础受力，模拟实际负载差异
+            variation = random.uniform(-10.0, 10.0)
+            self.force_base_values[i] = base_force + variation
+            self.force_target_values[i] = self.force_base_values[i]
+    
+    def _stop_force_simulation(self):
+        """停止受力模拟"""
+        self.force_simulation_active = False
+        # 目标值设为0，让受力值逐渐降到0
+        for i in range(12):
+            self.force_target_values[i] = 0.0
+    
+    def _update_force_simulation(self):
+        """更新受力模拟值"""
+        import time
+        import random
+        import math
+        
+        if self.force_simulation_active:
+            # 系统运行中，模拟正常工作受力
+            current_time = time.time()
+            elapsed = current_time - self.force_start_time
+            
+            for i in range(12):
+                base = self.force_base_values[i]
+                
+                # 添加周期性抖动（模拟振动和负载变化）
+                sine_component = 3.0 * math.sin(2 * math.pi * 0.5 * elapsed + i * 0.5)
+                noise_component = random.uniform(-2.0, 2.0)
+                
+                # 目标值 = 基础值 + 抖动
+                self.force_target_values[i] = base + sine_component + noise_component
+                
+        # 无论是否激活，都让当前值逐渐向目标值靠拢
+        for i in range(12):
+            target = self.force_target_values[i]
+            current = self.force_current_values[i]
+            
+            # 平滑过渡到目标值
+            diff = target - current
+            step = diff * 0.1  # 10%的步长，提供平滑过渡
+            
+            self.force_current_values[i] = max(0.0, current + step)
+        
+        # 更新传感器系统的受力值
+        try:
+            if hasattr(self.controller, 'sensor') and hasattr(self.controller.sensor, '_forces'):
+                self.controller.sensor._forces = self.force_current_values.copy()
+        except Exception:
+            pass
+        
+        # 定时调用自己
+        self.root.after(100, self._update_force_simulation)  # 每100ms更新一次
 
     def _on_close(self):
         try: 
