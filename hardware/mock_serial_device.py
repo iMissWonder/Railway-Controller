@@ -4,6 +4,7 @@ import time
 import threading
 import random
 import argparse
+import math
 from typing import Optional
 
 from .serial_interface import SerialInterface
@@ -36,7 +37,8 @@ class MockSerialDevice:
       - 遥测 FOR 为牛顿（可简化）
     """
     def __init__(self, ctrl_port: str, telem_port: Optional[str] = None,
-                 baudrate: int = 115200, logger=None, telemetry_interval: float = 0.1):
+                 baudrate: int = 115200, logger=None, telemetry_interval: float = 0.1,
+                 disturbance_enabled: bool = True, disturbance_amplitude: float = 2.0, disturbance_frequency: float = 0.5):
         self.ctrl = SerialInterface(ctrl_port, baudrate, timeout=0.02, logger=logger)
         self.telem = None
         if telem_port:
@@ -53,11 +55,18 @@ class MockSerialDevice:
         self._force = [int(random.uniform(900, 1100)) for _ in range(12)]
         # XY（mm）
         self._xy = self._default_xy()
+        self._base_xy = [pos for pos in self._xy]  # 保存基础坐标用于扰动计算
 
         # 急停标志
         self._estop = False
         # 遥测间隔（秒）
         self._telem_interval = float(telemetry_interval)
+        
+        # XY扰动参数
+        self._disturbance_enabled = disturbance_enabled
+        self._disturbance_amplitude = disturbance_amplitude  # 扰动幅度（mm）
+        self._disturbance_frequency = disturbance_frequency  # 扰动频率（Hz）
+        self._start_time = time.time()
 
     # ——— 初始化XY分布（固定道岔腿子坐标）———
     def _default_xy(self):
@@ -78,6 +87,42 @@ class MockSerialDevice:
         ]
         
         return fixed_positions  # 长度12，索引0..11
+
+    def _calculate_xy_disturbance(self, leg_index=0):
+        """计算当前时刻指定腿子的XY扰动值"""
+        if not self._disturbance_enabled:
+            return 0.0, 0.0
+        
+        elapsed = time.time() - self._start_time
+        
+        # 为每个腿子添加轻微的个体差异，让腿对间有细微变化
+        leg_phase_offset = leg_index * 0.1  # 每个腿子0.1弧度的相位差
+        leg_amplitude_factor = 1.0 + (leg_index % 3 - 1) * 0.1  # ±10%的幅度变化
+        
+        # 使用低频正弦波生成平滑扰动，模拟实际工程中的系统性偏移
+        # X和Y方向有不同的相位和频率，模拟真实的扰动模式
+        base_freq = self._disturbance_frequency
+        
+        # X方向：主频率 + 微小高频波动 + 个体差异
+        dx = (self._disturbance_amplitude * leg_amplitude_factor * 
+              math.sin(2 * math.pi * base_freq * elapsed + leg_phase_offset) + 
+              0.3 * self._disturbance_amplitude * 
+              math.sin(2 * math.pi * base_freq * 3 * elapsed + leg_phase_offset))
+        
+        # Y方向：相位差π/3，频率稍有不同，模拟不同方向的独立扰动 + 个体差异
+        dy = (self._disturbance_amplitude * 0.8 * leg_amplitude_factor *
+              math.cos(2 * math.pi * base_freq * 0.7 * elapsed + math.pi/3 + leg_phase_offset) +
+              0.2 * self._disturbance_amplitude * 
+              math.cos(2 * math.pi * base_freq * 2.5 * elapsed + leg_phase_offset))
+        
+        return dx, dy
+
+    def _update_xy_positions_with_disturbance(self):
+        """更新所有腿子的XY位置，每个腿子有轻微的个体扰动差异"""
+        for i in range(12):
+            dx, dy = self._calculate_xy_disturbance(i)
+            base_x, base_y = self._base_xy[i]
+            self._xy[i] = (base_x + dx, base_y + dy)
 
     # ——— 对外入口 ———
     def start(self):
@@ -195,7 +240,10 @@ class MockSerialDevice:
                     z_mm = self._z_dm[i] / 10.0
                     self.telem.write(f"Z,{i+1},{z_mm:.1f}\n".encode("utf-8"))
 
-                # XY（12行，mm） — 不在遥测循环中修改 self._xy（移除持续扰动）
+                # 更新所有腿子的XY位置（加入扰动）
+                self._update_xy_positions_with_disturbance()
+
+                # XY（12行，mm）
                 for i in range(12):
                     x, y = self._xy[i]
                     self.telem.write(f"XY,{i+1},{x:.1f},{y:.1f}\n".encode("utf-8"))
@@ -214,15 +262,33 @@ def main():
     ap.add_argument("--port", help="单口兼容模式（控制+遥测同口）")
     ap.add_argument("--baud", type=int, default=115200, help="波特率")
     ap.add_argument("--telem-interval", type=float, default=0.1, help="遥测发送间隔（秒），默认0.1s")
+    # XY扰动参数
+    ap.add_argument("--xy-disturbance", action="store_true", help="启用XY扰动功能")
+    ap.add_argument("--disturbance-amplitude", type=float, default=2.0, help="扰动幅度（mm），默认2.0")
+    ap.add_argument("--disturbance-frequency", type=float, default=0.5, help="扰动频率（Hz），默认0.5")
     args = ap.parse_args()
 
     if args.port:
-        dev = MockSerialDevice(ctrl_port=args.port, telem_port=None, baudrate=args.baud, telemetry_interval=args.telem_interval)
+        dev = MockSerialDevice(ctrl_port=args.port, telem_port=None, baudrate=args.baud, 
+                              telemetry_interval=args.telem_interval,
+                              disturbance_enabled=args.xy_disturbance,
+                              disturbance_amplitude=args.disturbance_amplitude,
+                              disturbance_frequency=args.disturbance_frequency)
     elif args.ctrl_port:
-        dev = MockSerialDevice(ctrl_port=args.ctrl_port, telem_port=args.telem_port, baudrate=args.baud, telemetry_interval=args.telem_interval)
+        dev = MockSerialDevice(ctrl_port=args.ctrl_port, telem_port=args.telem_port, baudrate=args.baud, 
+                              telemetry_interval=args.telem_interval,
+                              disturbance_enabled=args.xy_disturbance,
+                              disturbance_amplitude=args.disturbance_amplitude,
+                              disturbance_frequency=args.disturbance_frequency)
     else:
         print("请指定 --ctrl-port/--telem-port，或使用 --port 单口兼容模式。")
         return
+
+    # 显示扰动配置信息
+    if args.xy_disturbance:
+        print(f"[MockDevice] XY扰动已启用：幅度={args.disturbance_amplitude}mm, 频率={args.disturbance_frequency}Hz")
+    else:
+        print("[MockDevice] XY扰动已禁用")
 
     dev.start()
 

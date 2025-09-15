@@ -59,6 +59,23 @@ class GUIController:
         tk.Label(port_input_frame, text="遥测口:").pack(side=tk.LEFT)
         self.mock_telem_port_var = tk.StringVar(value="COM4")
         tk.Entry(port_input_frame, textvariable=self.mock_telem_port_var, width=8).pack(side=tk.LEFT, padx=(2,8))
+
+        # XY扰动配置
+        disturbance_frame = tk.Frame(port_config_frame)
+        disturbance_frame.pack(anchor="w", pady=(5,0))
+        
+        self.disturbance_enabled_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(disturbance_frame, text="启用XY扰动", variable=self.disturbance_enabled_var).pack(side=tk.LEFT)
+        
+        tk.Label(disturbance_frame, text="幅度:").pack(side=tk.LEFT, padx=(10,2))
+        self.disturbance_amplitude_var = tk.DoubleVar(value=3.0)
+        tk.Entry(disturbance_frame, textvariable=self.disturbance_amplitude_var, width=4).pack(side=tk.LEFT, padx=(0,2))
+        tk.Label(disturbance_frame, text="mm").pack(side=tk.LEFT, padx=(0,8))
+        
+        tk.Label(disturbance_frame, text="频率:").pack(side=tk.LEFT)
+        self.disturbance_frequency_var = tk.DoubleVar(value=0.3)
+        tk.Entry(disturbance_frame, textvariable=self.disturbance_frequency_var, width=4).pack(side=tk.LEFT, padx=(2,2))
+        tk.Label(disturbance_frame, text="Hz").pack(side=tk.LEFT)
         
         # 右侧：模拟硬件控制按钮
         hardware_buttons_frame = tk.Frame(hardware_frame)
@@ -267,6 +284,14 @@ class GUIController:
                 "--telem-interval", "0.1"
             ]
             
+            # 添加XY扰动参数
+            if self.disturbance_enabled_var.get():
+                cmd.extend([
+                    "--xy-disturbance",
+                    "--disturbance-amplitude", str(self.disturbance_amplitude_var.get()),
+                    "--disturbance-frequency", str(self.disturbance_frequency_var.get())
+                ])
+            
             # 获取项目根目录
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             
@@ -279,14 +304,23 @@ class GUIController:
                 creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
             )
             
-            # 更新UI状态
+            # 更新UI状态显示
+            disturbance_status = ""
+            if self.disturbance_enabled_var.get():
+                amplitude = self.disturbance_amplitude_var.get()
+                frequency = self.disturbance_frequency_var.get()
+                disturbance_status = f" [XY扰动: {amplitude}mm@{frequency}Hz]"
+            
             self.mock_device_btn.config(text="停止模拟硬件")
-            self.mock_device_status_label.config(text=f"状态: 运行中 ({ctrl_port}, {telem_port})", fg="green")
+            self.mock_device_status_label.config(text=f"状态: 运行中 ({ctrl_port}, {telem_port}){disturbance_status}", fg="green")
             
             # 启动监控线程
             threading.Thread(target=self._monitor_mock_device, daemon=True).start()
             
-            self.logger.info(f"模拟硬件已启动: 控制口={ctrl_port}, 遥测口={telem_port}")
+            log_msg = f"模拟硬件已启动: 控制口={ctrl_port}, 遥测口={telem_port}"
+            if self.disturbance_enabled_var.get():
+                log_msg += f", XY扰动={self.disturbance_amplitude_var.get()}mm@{self.disturbance_frequency_var.get()}Hz"
+            self.logger.info(log_msg)
             
         except Exception as e:
             messagebox.showerror("错误", f"启动模拟硬件失败: {str(e)}")
