@@ -28,7 +28,7 @@ class GUIController:
         # 模拟硬件进程引用
         self.mock_device_process = None
 
-        self.root.title("道岔腿子控制系统（周期闭环 + 串口监视器）")
+        self.root.title("道岔腿子控制系统")
 
         # 顶部状态显示区域
         top = tk.Frame(root); top.pack(fill=tk.X, pady=4)
@@ -36,7 +36,7 @@ class GUIController:
         self.status_label.pack(side=tk.LEFT, padx=10)
         
         # 中心信息显示（合并所有中心信息）
-        self.center_info_label = tk.Label(top, text="目标中心Z：-  实际中心：-  几何中心：-", font=("宋体", 10))
+        self.center_info_label = tk.Label(top, text="目标中心Z：-  实际中心：-  几何中心：-", font=("宋体", 20))
         self.center_info_label.pack(side=tk.RIGHT, padx=10)
 
         # 模拟硬件控制区域
@@ -47,57 +47,61 @@ class GUIController:
         port_config_frame = tk.Frame(hardware_frame)
         port_config_frame.pack(side=tk.LEFT, padx=10)
         
-        tk.Label(port_config_frame, text="模拟硬件端口配置:", font=("黑体", 10)).pack(anchor="w")
+        tk.Label(port_config_frame, text="模拟硬件端口配置:", font=("黑体", 14)).pack(anchor="w")
         
         port_input_frame = tk.Frame(port_config_frame)
         port_input_frame.pack(anchor="w")
         
-        tk.Label(port_input_frame, text="控制口:").pack(side=tk.LEFT)
+        tk.Label(port_input_frame, text="控制口:", font=("宋体", 13)).pack(side=tk.LEFT)
         self.mock_ctrl_port_var = tk.StringVar(value="COM2")
-        tk.Entry(port_input_frame, textvariable=self.mock_ctrl_port_var, width=8).pack(side=tk.LEFT, padx=(2,8))
+        tk.Entry(port_input_frame, textvariable=self.mock_ctrl_port_var, width=8, font=("宋体", 12)).pack(side=tk.LEFT, padx=(2,8))
         
-        tk.Label(port_input_frame, text="遥测口:").pack(side=tk.LEFT)
+        tk.Label(port_input_frame, text="遥测口:", font=("宋体", 13)).pack(side=tk.LEFT)
         self.mock_telem_port_var = tk.StringVar(value="COM4")
-        tk.Entry(port_input_frame, textvariable=self.mock_telem_port_var, width=8).pack(side=tk.LEFT, padx=(2,8))
+        tk.Entry(port_input_frame, textvariable=self.mock_telem_port_var, width=8, font=("宋体", 12)).pack(side=tk.LEFT, padx=(2,8))
 
         # XY扰动配置
         disturbance_frame = tk.Frame(port_config_frame)
         disturbance_frame.pack(anchor="w", pady=(5,0))
         
         self.disturbance_enabled_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(disturbance_frame, text="启用XY扰动", variable=self.disturbance_enabled_var).pack(side=tk.LEFT)
+        tk.Checkbutton(disturbance_frame, text="启用XY扰动", variable=self.disturbance_enabled_var, font=("宋体", 12)).pack(side=tk.LEFT)
         
-        tk.Label(disturbance_frame, text="幅度:").pack(side=tk.LEFT, padx=(10,2))
-        self.disturbance_amplitude_var = tk.DoubleVar(value=3.0)
-        tk.Entry(disturbance_frame, textvariable=self.disturbance_amplitude_var, width=4).pack(side=tk.LEFT, padx=(0,2))
-        tk.Label(disturbance_frame, text="mm").pack(side=tk.LEFT, padx=(0,8))
+        tk.Label(disturbance_frame, text="幅度:", font=("宋体", 12)).pack(side=tk.LEFT, padx=(10,2))
+        self.disturbance_amplitude_var = tk.DoubleVar(value=1.0)
+        tk.Entry(disturbance_frame, textvariable=self.disturbance_amplitude_var, width=4, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,2))
+        tk.Label(disturbance_frame, text="mm", font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,8))
         
-        tk.Label(disturbance_frame, text="频率:").pack(side=tk.LEFT)
+        tk.Label(disturbance_frame, text="频率:", font=("宋体", 12)).pack(side=tk.LEFT)
         self.disturbance_frequency_var = tk.DoubleVar(value=0.3)
-        tk.Entry(disturbance_frame, textvariable=self.disturbance_frequency_var, width=4).pack(side=tk.LEFT, padx=(2,2))
-        tk.Label(disturbance_frame, text="Hz").pack(side=tk.LEFT)
+        tk.Entry(disturbance_frame, textvariable=self.disturbance_frequency_var, width=4, font=("宋体", 12)).pack(side=tk.LEFT, padx=(2,2))
+        tk.Label(disturbance_frame, text="Hz", font=("宋体", 12)).pack(side=tk.LEFT)
         
         # 右侧：模拟硬件控制按钮
         hardware_buttons_frame = tk.Frame(hardware_frame)
         hardware_buttons_frame.pack(side=tk.LEFT, padx=20)
         
-        self.mock_device_btn = ttk.Button(hardware_buttons_frame, text="启动模拟硬件", command=self._toggle_mock_device)
+        # 配置按钮样式
+        style = ttk.Style()
+        style.configure("Large.TButton", font=("宋体", 13))
+        
+        self.mock_device_btn = ttk.Button(hardware_buttons_frame, text="启动模拟硬件", command=self._toggle_mock_device, style="Large.TButton")
         self.mock_device_btn.pack(side=tk.LEFT, padx=5)
         
-        self.mock_device_status_label = tk.Label(hardware_buttons_frame, text="状态: 未启动", font=("宋体", 9), fg="gray")
+        self.mock_device_status_label = tk.Label(hardware_buttons_frame, text="状态: 未启动", font=("宋体", 13), fg="gray")
         self.mock_device_status_label.pack(side=tk.LEFT, padx=10)
 
         # 控制区
         ctr = tk.Frame(root); ctr.pack(fill=tk.X, pady=4)
-        tk.Label(ctr, text="控制周期(ms)：").pack(side=tk.LEFT)
-        self.period_var = tk.IntVar(value=500); tk.Entry(ctr, textvariable=self.period_var, width=6).pack(side=tk.LEFT, padx=(0,10))
-        tk.Label(ctr, text="中心下降速率(mm/s)：").pack(side=tk.LEFT)
-        self.rate_var = tk.DoubleVar(value=10.0); tk.Entry(ctr, textvariable=self.rate_var, width=6).pack(side=tk.LEFT, padx=(0,10))
-        ttk.Button(ctr, text="开始", command=self._on_start).pack(side=tk.LEFT, padx=5)
-        ttk.Button(ctr, text="停止", command=self._on_stop).pack(side=tk.LEFT, padx=5)
-        ttk.Button(ctr, text="急停", command=self._on_emergency).pack(side=tk.LEFT, padx=5)
-        ttk.Button(ctr, text="重置", command=self._on_reset).pack(side=tk.LEFT, padx=5)
-        ttk.Button(ctr, text="串口监视器", command=self._open_serial_monitor).pack(side=tk.LEFT, padx=5)
+        tk.Label(ctr, text="控制周期(ms)：", font=("宋体", 13)).pack(side=tk.LEFT)
+        self.period_var = tk.IntVar(value=500); tk.Entry(ctr, textvariable=self.period_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
+        tk.Label(ctr, text="中心下降速率(mm/s)：", font=("宋体", 13)).pack(side=tk.LEFT)
+        self.rate_var = tk.DoubleVar(value=10.0); tk.Entry(ctr, textvariable=self.rate_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
+        ttk.Button(ctr, text="开始", command=self._on_start, style="Large.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(ctr, text="停止", command=self._on_stop, style="Large.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(ctr, text="急停", command=self._on_emergency, style="Large.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(ctr, text="重置", command=self._on_reset, style="Large.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(ctr, text="串口监视器", command=self._open_serial_monitor, style="Large.TButton").pack(side=tk.LEFT, padx=5)
 
         # 图表 - 调整布局让XY坐标图占据上半部分大面积
         fig = plt.figure(figsize=(14,10))
@@ -118,43 +122,58 @@ class GUIController:
         self.canvas = FigureCanvasTkAgg(fig, master=root)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # 输入框
-        wrap = tk.Frame(root); wrap.pack(pady=4)
-        left = tk.Frame(wrap); right = tk.Frame(wrap)
-        left.pack(side=tk.LEFT, padx=20); right.pack(side=tk.LEFT, padx=20)
+        # 底部三个板块横向排列
+        bottom_frame = tk.Frame(root)
+        bottom_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        
+        # 左侧：腿子坐标信息
+        coord_frame = tk.Frame(bottom_frame)
+        coord_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0,5))
+        
+        coord_title = tk.Label(coord_frame, text="腿子坐标信息", font=("黑体", 20))
+        coord_title.pack(pady=(0,5))
+        
+        # 坐标信息表格容器
+        coord_content = tk.Frame(coord_frame)
+        coord_content.pack(fill=tk.BOTH, expand=True)
+        
+        # 左右两列坐标信息
+        left = tk.Frame(coord_content)
+        right = tk.Frame(coord_content)
+        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0,10))
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # 左侧标题和表头
-        left_title = tk.Label(left, text="腿子 1-6 坐标信息", font=("黑体", 12))
+        left_title = tk.Label(left, text="腿子 1-6", font=("黑体", 16))
         left_title.pack(pady=(0,5))
         left_head = tk.Frame(left); left_head.pack()
         for i,t in enumerate(("编号","X","Y","Z")):
-            tk.Label(left_head, text=t, font=("黑体", 10)).grid(row=0, column=i, padx=6)
+            tk.Label(left_head, text=t, font=("黑体", 16)).grid(row=0, column=i, padx=6)
         
         # 右侧标题和表头
-        right_title = tk.Label(right, text="腿子 7-12 坐标信息", font=("黑体", 12))
+        right_title = tk.Label(right, text="腿子 7-12", font=("黑体", 16))
         right_title.pack(pady=(0,5))
         right_head = tk.Frame(right); right_head.pack()
         for i,t in enumerate(("编号","X","Y","Z")):
-            tk.Label(right_head, text=t, font=("黑体", 10)).grid(row=0, column=i, padx=6)
+            tk.Label(right_head, text=t, font=("黑体", 16)).grid(row=0, column=i, padx=6)
         
         self.coord_entries = [None]*12
         for i in range(6):
             self.coord_entries[i] = self._row(left, i)
             self.coord_entries[i+6] = self._row(right, i+6)
 
-        # 日志区
-        logs = tk.Frame(root); logs.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-        
-        # 左侧日志窗口（控制循环 - INFO外的信息）
-        left_log = tk.Frame(logs); left_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        tk.Label(left_log, text="控制循环").pack(anchor="w")
-        self.log_window = scrolledtext.ScrolledText(left_log, width=80, height=8, font=("宋体", 10))
+        # 中间：控制循环日志
+        left_log = tk.Frame(bottom_frame)
+        left_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        tk.Label(left_log, text="控制循环", font=("黑体", 20)).pack(anchor="w")
+        self.log_window = scrolledtext.ScrolledText(left_log, width=60, height=12, font=("宋体", 14))
         self.log_window.pack(fill=tk.BOTH, expand=True)
 
-        # 右侧日志窗口（系统运行状态 - 只显示INFO信息）
-        right_log = tk.Frame(logs); right_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6,0))
-        tk.Label(right_log, text="系统运行状态").pack(anchor="w")
-        self.status_log_window = scrolledtext.ScrolledText(right_log, width=80, height=8, font=("宋体", 10))
+        # 右侧：系统运行状态日志
+        right_log = tk.Frame(bottom_frame)
+        right_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5,0))
+        tk.Label(right_log, text="系统运行状态", font=("黑体", 20)).pack(anchor="w")
+        self.status_log_window = scrolledtext.ScrolledText(right_log, width=60, height=12, font=("宋体", 14))
         self.status_log_window.pack(fill=tk.BOTH, expand=True)
 
         # 将 GUI 更新函数给控制器
@@ -174,8 +193,8 @@ class GUIController:
 
     def _row(self, parent, idx):
         f = tk.Frame(parent); f.pack(pady=1)
-        tk.Label(f, text=f"{idx+1:02d}").pack(side=tk.LEFT, padx=6)
-        x = tk.Entry(f, width=8); y = tk.Entry(f, width=8); z = tk.Entry(f, width=8)
+        tk.Label(f, text=f"{idx+1:02d}", font=("宋体", 15)).pack(side=tk.LEFT, padx=6)
+        x = tk.Entry(f, width=8, font=("宋体", 14)); y = tk.Entry(f, width=8, font=("宋体", 14)); z = tk.Entry(f, width=8, font=("宋体", 14))
         # 移除readonly状态，让输入框可以正常显示和更新内容
         # for e in (x,y,z): e.configure(state="readonly")
         x.pack(side=tk.LEFT); y.pack(side=tk.LEFT, padx=4); z.pack(side=tk.LEFT)
@@ -239,9 +258,9 @@ class GUIController:
         # 控制按钮
         button_frame = tk.Frame(self.serial_monitor_window)
         button_frame.pack(fill=tk.X, padx=10, pady=(0,10))
-        ttk.Button(button_frame, text="清空TX", command=lambda: self.serial_monitor_window.tx_window.delete(1.0, tk.END)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="清空RX", command=lambda: self.serial_monitor_window.rx_window.delete(1.0, tk.END)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="清空全部", command=self._clear_all_serial).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="清空TX", command=lambda: self.serial_monitor_window.tx_window.delete(1.0, tk.END), style="Large.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="清空RX", command=lambda: self.serial_monitor_window.rx_window.delete(1.0, tk.END), style="Large.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="清空全部", command=self._clear_all_serial, style="Large.TButton").pack(side=tk.LEFT, padx=5)
         
         # 窗口关闭事件
         self.serial_monitor_window.protocol("WM_DELETE_WINDOW", self._close_serial_monitor)
@@ -470,22 +489,26 @@ class GUIController:
         )
 
         # Z 柱状图 - 调整为小图显示
-        self.ax_z.clear(); self.ax_z.set_title("Z轴高度", fontsize=10); self.ax_z.set_ylim(0,700)
+        self.ax_z.clear(); self.ax_z.set_title("Z轴高度", fontsize=20); self.ax_z.set_ylim(0,700)
         names = [l.name for l in self.legs]
         zvals = display_z
         bars = self.ax_z.bar(names, zvals, color='skyblue')
         # 调整字体大小和标签旋转
-        self.ax_z.tick_params(axis='x', labelsize=7, rotation=45)
-        self.ax_z.tick_params(axis='y', labelsize=7)
+        self.ax_z.tick_params(axis='x', labelsize=9, rotation=45)
+        self.ax_z.tick_params(axis='y', labelsize=9)
         for i,b in enumerate(bars):
             self.ax_z.text(b.get_x()+b.get_width()/2, b.get_height()+8, f"{zvals[i]:.0f}",
-                           ha='center', va='bottom', fontsize=6)
+                           ha='center', va='bottom', fontsize=8)
 
         # XY坐标图（放大显示，占据上半部分）
-        self.ax_xy.clear(); self.ax_xy.set_title("腿子XY坐标分布", fontsize=16)
+        self.ax_xy.clear(); self.ax_xy.set_title("腿子XY坐标分布", fontsize=20)
         self.ax_xy.set_xlabel("X (mm)", fontsize=12); self.ax_xy.set_ylabel("Y (mm)", fontsize=12)
         self.ax_xy.grid(True); self.ax_xy.set_aspect('equal')
-        self.ax_xy.tick_params(axis='both', labelsize=10)
+        self.ax_xy.tick_params(axis='both', labelsize=12)
+        
+        # 设置固定的坐标轴范围（紧凑显示，减少边界）
+        self.ax_xy.set_xlim(-100, 2500)
+        self.ax_xy.set_ylim(-20, 350)
         
         # 画腿子位置 - 放大显示
         xs = [xy[0] for xy in display_xy]; ys = [xy[1] for xy in display_xy]
@@ -493,43 +516,43 @@ class GUIController:
         
         # 标注腿子编号 - 放大字体
         for i in range(12):
-            self.ax_xy.text(xs[i], ys[i]+50, str(i+1), fontsize=12, ha='center', fontweight='bold')
+            self.ax_xy.text(xs[i], ys[i]+50, str(i+1), fontsize=14, ha='center', fontweight='bold')
         
         # 画对称腿对连线
         for i in range(0,12,2):
             self.ax_xy.plot([xs[i], xs[i+1]], [ys[i], ys[i+1]], color='gray', linestyle='--', alpha=0.6, linewidth=2)
 
-        # 画实际中心点（蓝色三角形） - 放大显示
-        self.ax_xy.scatter([current_cx], [current_cy], c='blue', s=200, marker='^', 
-                          label=f'当前几何中心 ({current_cx:.1f}, {current_cy:.1f})', edgecolors='black', linewidth=2)
+        # 画当前几何中心点（蓝色边框正方形，透明填充） - 小尺寸
+        self.ax_xy.scatter([current_cx], [current_cy], c='none', s=10, marker='s', 
+                          label=f'当前几何中心 ({current_cx:.1f}, {current_cy:.1f})', edgecolors='blue', linewidth=1)
 
-        # 画理论几何中心点（绿色菱形） - 放大显示
-        self.ax_xy.scatter([theory_cx], [theory_cy], c='green', s=200, marker='D', 
-                          label=f'理论几何中心 ({theory_cx:.1f}, {theory_cy:.1f})', edgecolors='black', linewidth=2)
+        # 画理论几何中心点（绿色边框圆形，透明填充） - 更大尺寸
+        self.ax_xy.scatter([theory_cx], [theory_cy], c='none', s=80, marker='o', 
+                          label=f'理论几何中心 ({theory_cx:.1f}, {theory_cy:.1f})', edgecolors='green', linewidth=1)
 
-        # 画中心偏差连线
+        # 画中心偏差连线（很细的红色实线）
         if abs(current_cx - theory_cx) > 1 or abs(current_cy - theory_cy) > 1:
             self.ax_xy.plot([current_cx, theory_cx], [current_cy, theory_cy], 
-                           color='red', linestyle='--', linewidth=3, alpha=0.8, label='中心偏差')
+                           color='red', linestyle='-', linewidth=0.8, alpha=0.8, label='中心偏差')
 
         # 添加图例 - 放大字体
-        self.ax_xy.legend(loc='upper right', fontsize=10)
+        self.ax_xy.legend(loc='upper right', fontsize=12)
 
         # 四角翘曲图 - 调整为小图显示
-        self.ax_att.clear(); self.ax_att.set_title("四角翘曲", fontsize=10)
+        self.ax_att.clear(); self.ax_att.set_title("四角翘曲", fontsize=20)
         dzs = [display_z[i] - cz for i in [0,1,10,11]]
         bars = self.ax_att.bar(["左前", "左后", "右后", "右前"], dzs, color='orange')
         self.ax_att.set_ylim(-100, 100)
-        self.ax_att.tick_params(axis='x', labelsize=7, rotation=30)
-        self.ax_att.tick_params(axis='y', labelsize=7)
+        self.ax_att.tick_params(axis='x', labelsize=9, rotation=30)
+        self.ax_att.tick_params(axis='y', labelsize=9)
         # 添加数值标签
         for i, bar in enumerate(bars):
             height = bar.get_height()
             self.ax_att.text(bar.get_x() + bar.get_width()/2., height + (5 if height >= 0 else -10),
-                           f'{dzs[i]:.0f}', ha='center', va='bottom' if height >= 0 else 'top', fontsize=6)
+                           f'{dzs[i]:.0f}', ha='center', va='bottom' if height >= 0 else 'top', fontsize=8)
 
         # 受力监测图 - 调整为小图显示
-        self.ax_force.clear(); self.ax_force.set_title("受力监测", fontsize=10)
+        self.ax_force.clear(); self.ax_force.set_title("受力监测", fontsize=20)
         try:
             forces = self.controller.sensor.latest_forces()
             force_vals = forces if len(forces) >= 12 else [getattr(l,"force",0.0) for l in self.legs]
@@ -537,8 +560,8 @@ class GUIController:
             force_vals = [getattr(l,"force",0.0) for l in self.legs]
         self.ax_force.bar(names, force_vals, color='green')
         self.ax_force.set_ylim(0, 150)
-        self.ax_force.tick_params(axis='x', labelsize=7, rotation=45)
-        self.ax_force.tick_params(axis='y', labelsize=7)
+        self.ax_force.tick_params(axis='x', labelsize=9, rotation=45)
+        self.ax_force.tick_params(axis='y', labelsize=9)
 
         self.canvas.draw()
         
