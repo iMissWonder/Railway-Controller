@@ -187,14 +187,20 @@ class GUIController:
         left_log = tk.Frame(bottom_frame)
         left_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         tk.Label(left_log, text="控制循环", font=("黑体", 20)).pack(anchor="w")
-        self.log_window = scrolledtext.ScrolledText(left_log, width=60, height=12, font=("宋体", 14))
+        self.log_window = scrolledtext.ScrolledText(left_log, width=60, height=12, font=("宋体", 14), wrap='word')
+        self.log_window.configure(state='normal')
+        # 禁用水平滚动条
+        self.log_window.configure(xscrollcommand=None)
         self.log_window.pack(fill=tk.BOTH, expand=True)
 
         # 右侧：系统运行状态日志
         right_log = tk.Frame(bottom_frame)
         right_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5,0))
         tk.Label(right_log, text="系统运行状态", font=("黑体", 20)).pack(anchor="w")
-        self.status_log_window = scrolledtext.ScrolledText(right_log, width=60, height=12, font=("宋体", 14))
+        self.status_log_window = scrolledtext.ScrolledText(right_log, width=60, height=12, font=("宋体", 14), wrap='word')
+        self.status_log_window.configure(state='normal')
+        # 禁用水平滚动条
+        self.status_log_window.configure(xscrollcommand=None)
         self.status_log_window.pack(fill=tk.BOTH, expand=True)
 
         # 将 GUI 更新函数给控制器
@@ -211,6 +217,20 @@ class GUIController:
         
         # 启动受力模拟定时器
         self._start_force_simulation_timer()
+
+        # 全屏功能相关变量
+        self.is_fullscreen = False
+        self.normal_geometry = None
+        
+        # 绑定F11键切换全屏
+        self.root.bind('<F11>', self._toggle_fullscreen)
+        self.root.bind('<Escape>', self._exit_fullscreen)
+        
+        # 确保窗口可以获得焦点以接收键盘事件
+        self.root.focus_set()
+
+        # 默认启动全屏模式
+        self.root.after(100, self._enter_fullscreen)  # 延迟执行以确保窗口完全初始化
 
         # 在窗口关闭时停止模拟硬件
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -261,12 +281,19 @@ class GUIController:
         if self.single_leg_window and self.single_leg_window.winfo_exists():
             # 如果窗口已存在，则置前显示
             self.single_leg_window.lift()
+            self.single_leg_window.focus()
+            self.single_leg_window.attributes('-topmost', True)
             return
             
         # 创建单腿控制窗口
         self.single_leg_window = tk.Toplevel(self.root)
-        self.single_leg_window.title("单腿控制")
+        self.single_leg_window.title("单腿控制 (置顶窗口)")
         self.single_leg_window.geometry("1400x900")  # 增大窗口尺寸
+        
+        # 设置窗口始终在最前端（永久置顶）
+        self.single_leg_window.attributes('-topmost', True)
+        self.single_leg_window.lift()
+        self.single_leg_window.focus()
         
         # 设置选中第一个腿子（默认腿子1）
         self.selected_leg_index = 0
@@ -526,12 +553,18 @@ class GUIController:
             # 如果窗口已存在，则置前显示
             self.serial_monitor_window.lift()
             self.serial_monitor_window.focus()
+            self.serial_monitor_window.attributes('-topmost', True)
             return
         
         # 创建新的串口监视器窗口
         self.serial_monitor_window = tk.Toplevel(self.root)
-        self.serial_monitor_window.title("串口监视器")
+        self.serial_monitor_window.title("串口监视器 (置顶窗口)")
         self.serial_monitor_window.geometry("1000x600")
+        
+        # 设置窗口始终在最前端（永久置顶）
+        self.serial_monitor_window.attributes('-topmost', True)
+        self.serial_monitor_window.lift()
+        self.serial_monitor_window.focus()
         
         # 创建TX和RX分离的窗口
         main_frame = tk.Frame(self.serial_monitor_window)
@@ -542,8 +575,10 @@ class GUIController:
         tx_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tk.Label(tx_frame, text="发送 (TX)", font=("黑体", 16)).pack(anchor="w")
         self.serial_monitor_window.tx_window = scrolledtext.ScrolledText(
-            tx_frame, width=60, height=25, font=("Consolas", 13)
+            tx_frame, width=60, height=25, font=("Consolas", 13), wrap='word'
         )
+        # 禁用水平滚动条
+        self.serial_monitor_window.tx_window.configure(xscrollcommand=None)
         self.serial_monitor_window.tx_window.pack(fill=tk.BOTH, expand=True)
         
         # RX窗口
@@ -551,8 +586,10 @@ class GUIController:
         rx_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10,0))
         tk.Label(rx_frame, text="接收 (RX)", font=("黑体", 16)).pack(anchor="w")
         self.serial_monitor_window.rx_window = scrolledtext.ScrolledText(
-            rx_frame, width=60, height=25, font=("Consolas", 13)
+            rx_frame, width=60, height=25, font=("Consolas", 13), wrap='word'
         )
+        # 禁用水平滚动条
+        self.serial_monitor_window.rx_window.configure(xscrollcommand=None)
         self.serial_monitor_window.rx_window.pack(fill=tk.BOTH, expand=True)
         
         # 控制按钮
@@ -826,23 +863,39 @@ class GUIController:
             self.ax_xy.plot([current_cx, theory_cx], [current_cy, theory_cy], 
                            color='red', linestyle='-', linewidth=0.8, alpha=0.8, label='中心偏差')
 
-        # 添加图例 - 放大字体
-        # 创建颜色图例
+        # 添加图例 - 使用实际形状和颜色
         import matplotlib.patches as mpatches
-        red_patch = mpatches.Patch(color='red', label='普通腿子')
-        green_patch = mpatches.Patch(color='green', label='选中腿子')
+        import matplotlib.lines as mlines
         
-        # 原有的图例
-        legend_elements = [red_patch, green_patch]
+        # 创建自定义图例元素
+        # 普通腿子 - 红色圆形
+        red_leg = mlines.Line2D([], [], color='red', marker='o', linestyle='None',
+                               markersize=10, markeredgecolor='black', markeredgewidth=1,
+                               label='普通腿子')
         
-        # 添加中心点的图例
-        current_center_patch = mpatches.Patch(color='blue', label=f'当前几何中心 ({current_cx:.1f}, {current_cy:.1f})')
-        theory_center_patch = mpatches.Patch(color='green', label=f'理论几何中心 ({theory_cx:.1f}, {theory_cy:.1f})')
-        legend_elements.extend([current_center_patch, theory_center_patch])
+        # 选中腿子 - 绿色圆形
+        green_leg = mlines.Line2D([], [], color='green', marker='o', linestyle='None',
+                                 markersize=10, markeredgecolor='black', markeredgewidth=1,
+                                 label='选中腿子')
         
+        # 当前几何中心 - 蓝色边框方形，透明填充
+        current_center = mlines.Line2D([], [], color='none', marker='s', linestyle='None',
+                                     markersize=8, markeredgecolor='blue', markeredgewidth=2,
+                                     label=f'当前几何中心 ({current_cx:.1f}, {current_cy:.1f})')
+        
+        # 理论几何中心 - 绿色边框圆形，透明填充
+        theory_center = mlines.Line2D([], [], color='none', marker='o', linestyle='None',
+                                    markersize=12, markeredgecolor='green', markeredgewidth=2,
+                                    label=f'理论几何中心 ({theory_cx:.1f}, {theory_cy:.1f})')
+        
+        # 构建图例元素列表
+        legend_elements = [red_leg, green_leg, current_center, theory_center]
+        
+        # 如果有中心偏差，添加偏差线图例
         if abs(current_cx - theory_cx) > 1 or abs(current_cy - theory_cy) > 1:
-            deviation_patch = mpatches.Patch(color='red', label='中心偏差')
-            legend_elements.append(deviation_patch)
+            deviation_line = mlines.Line2D([], [], color='red', linestyle='-', 
+                                         linewidth=2, alpha=0.8, label='中心偏差')
+            legend_elements.append(deviation_line)
         
         self.ax_xy.legend(handles=legend_elements, loc='upper right', fontsize=12)
 
@@ -972,6 +1025,99 @@ class GUIController:
         # 定时调用自己
         self.root.after(100, self._update_force_simulation)  # 每100ms更新一次
 
+    def _toggle_fullscreen(self, event=None):
+        """切换全屏状态"""
+        if self.is_fullscreen:
+            self._exit_fullscreen()
+        else:
+            self._enter_fullscreen()
+
+    def _enter_fullscreen(self, event=None):
+        """进入全屏模式"""
+        if not self.is_fullscreen:
+            # 保存当前窗口几何信息（如果还没保存的话）
+            if self.normal_geometry is None:
+                self.normal_geometry = self.root.geometry()
+            
+            # 设置全屏
+            self.root.state('zoomed')  # Windows下的最大化
+            self.root.overrideredirect(True)  # 隐藏标题栏
+            
+            # 隐藏滚动条
+            self._hide_scrollbars()
+            
+            self.is_fullscreen = True
+            self.logger.info("进入全屏模式 (按Esc或F11退出)")
+
+    def _exit_fullscreen(self, event=None):
+        """退出全屏模式"""
+        if self.is_fullscreen:
+            # 恢复窗口状态
+            self.root.overrideredirect(False)  # 恢复标题栏
+            self.root.state('normal')
+            
+            # 恢复原始窗口大小
+            if self.normal_geometry:
+                self.root.geometry(self.normal_geometry)
+            
+            # 恢复滚动条
+            self._show_scrollbars()
+            
+            self.is_fullscreen = False
+            self.logger.info("退出全屏模式")
+
+    def _hide_scrollbars(self):
+        """隐藏所有滚动条"""
+        try:
+            # 隐藏主窗口的滚动条
+            if hasattr(self, 'scrollbar_y'):
+                self.scrollbar_y.pack_forget()
+            if hasattr(self, 'scrollbar_x'):
+                self.scrollbar_x.pack_forget()
+            
+            # 禁用Canvas的滚动命令
+            if hasattr(self, 'main_canvas'):
+                self.main_canvas.configure(yscrollcommand=None, xscrollcommand=None)
+            
+            # 隐藏日志窗口的滚动条
+            if hasattr(self, 'log_window'):
+                # 获取内部的Text组件并禁用其滚动条
+                self.log_window.vbar.pack_forget()
+            
+            if hasattr(self, 'status_log_window'):
+                self.status_log_window.vbar.pack_forget()
+                
+        except Exception as e:
+            self.logger.debug(f"隐藏滚动条时出错: {e}")
+
+    def _show_scrollbars(self):
+        """显示所有滚动条"""
+        try:
+            # 恢复主窗口的滚动条
+            if hasattr(self, 'scrollbar_y'):
+                self.scrollbar_y.pack(side="right", fill="y")
+            if hasattr(self, 'scrollbar_x'):
+                self.scrollbar_x.pack(side="bottom", fill="x")
+            
+            # 重新启用Canvas的滚动命令
+            if hasattr(self, 'main_canvas'):
+                if hasattr(self, 'scrollbar_y'):
+                    self.main_canvas.configure(yscrollcommand=self.scrollbar_y.set)
+                if hasattr(self, 'scrollbar_x'):
+                    self.main_canvas.configure(xscrollcommand=self.scrollbar_x.set)
+            
+            # 恢复日志窗口的滚动条
+            if hasattr(self, 'log_window'):
+                self.log_window.vbar.pack(side="right", fill="y")
+                self.log_window.configure(yscrollcommand=self.log_window.vbar.set)
+            
+            if hasattr(self, 'status_log_window'):
+                self.status_log_window.vbar.pack(side="right", fill="y")
+                self.status_log_window.configure(yscrollcommand=self.status_log_window.vbar.set)
+                
+        except Exception as e:
+            self.logger.debug(f"恢复滚动条时出错: {e}")
+
     def _on_close(self):
         try: 
             # 关闭串口监视器窗口
@@ -984,8 +1130,8 @@ class GUIController:
 def start_gui(controller):
     root = tk.Tk()
     
-    # 设置窗口初始大小
-    root.geometry("1200x800")
+    # 设置窗口初始大小（作为退出全屏时的默认尺寸）
+    root.geometry("1400x1000")
     
     # 创建主Canvas和滚动条
     main_canvas = tk.Canvas(root)
@@ -1032,6 +1178,11 @@ def start_gui(controller):
     
     # 创建GUI控制器，传入scrollable_frame而不是root
     app = GUIController(scrollable_frame, controller)
+    
+    # 将滚动条引用传递给app，以便在全屏时控制
+    app.main_canvas = main_canvas
+    app.scrollbar_y = scrollbar_y
+    app.scrollbar_x = scrollbar_x
     
     # 确保焦点在Canvas上以支持键盘滚动
     main_canvas.focus_set()
