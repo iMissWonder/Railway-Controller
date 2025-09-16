@@ -82,9 +82,9 @@ class GUIController:
         tk.Checkbutton(disturbance_frame, text="启用XY扰动", variable=self.disturbance_enabled_var, font=("宋体", 12)).pack(side=tk.LEFT)
         
         tk.Label(disturbance_frame, text="幅度:", font=("宋体", 12)).pack(side=tk.LEFT, padx=(10,2))
-        self.disturbance_amplitude_var = tk.DoubleVar(value=1.0)
+        self.disturbance_amplitude_var = tk.DoubleVar(value=0.1)
         tk.Entry(disturbance_frame, textvariable=self.disturbance_amplitude_var, width=4, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,2))
-        tk.Label(disturbance_frame, text="mm", font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,8))
+        tk.Label(disturbance_frame, text="cm", font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,8))
         
         tk.Label(disturbance_frame, text="频率:", font=("宋体", 12)).pack(side=tk.LEFT)
         self.disturbance_frequency_var = tk.DoubleVar(value=0.3)
@@ -112,8 +112,8 @@ class GUIController:
         ctr = tk.Frame(self.parent); ctr.pack(fill=tk.X, pady=4)
         tk.Label(ctr, text="控制周期(ms)：", font=("宋体", 13)).pack(side=tk.LEFT)
         self.period_var = tk.IntVar(value=500); tk.Entry(ctr, textvariable=self.period_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
-        tk.Label(ctr, text="中心下降速率(mm/s)：", font=("宋体", 13)).pack(side=tk.LEFT)
-        self.rate_var = tk.DoubleVar(value=50.0); tk.Entry(ctr, textvariable=self.rate_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
+        tk.Label(ctr, text="中心下降速率(cm/s)：", font=("宋体", 13)).pack(side=tk.LEFT)
+        self.rate_var = tk.DoubleVar(value=5.0); tk.Entry(ctr, textvariable=self.rate_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
         ttk.Button(ctr, text="开始", command=self._on_start, style="Large.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="停止", command=self._on_stop, style="Large.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="急停", command=self._on_emergency, style="Large.TButton").pack(side=tk.LEFT, padx=5)
@@ -247,16 +247,16 @@ class GUIController:
     # ——— 按钮事件 ———
     def _on_start(self):
         period_ms = max(30, int(self.period_var.get()))
-        rate_mm_s = max(0.0, float(self.rate_var.get()))
+        rate_cm_s = max(0.0, float(self.rate_var.get()))
         
         # 启动受力模拟
         self._start_force_simulation()
         
         # 只通过MainController的set方法设置参数（它们内部会调用update_control_params）
         self.controller.set_period_ms(period_ms)
-        self.controller.set_center_rate(rate_mm_s)
+        self.controller.set_center_rate(rate_cm_s)
         self.controller.start_loop()
-        self.logger.info(f"启动闭环：period={period_ms}ms, rate={rate_mm_s}mm/s")
+        self.logger.info(f"启动闭环：period={period_ms}ms, rate={rate_cm_s}cm/s")
 
     def _on_stop(self):
         # 停止受力模拟
@@ -665,7 +665,7 @@ class GUIController:
             if self.disturbance_enabled_var.get():
                 amplitude = self.disturbance_amplitude_var.get()
                 frequency = self.disturbance_frequency_var.get()
-                disturbance_status = f" [XY扰动: {amplitude}mm@{frequency}Hz]"
+                disturbance_status = f" [XY扰动: {amplitude}cm@{frequency}Hz]"
             
             self.mock_device_btn.config(text="停止模拟硬件")
             self.mock_device_status_label.config(text=f"状态: 运行中 ({ctrl_port}, {telem_port}){disturbance_status}", fg="green")
@@ -675,7 +675,7 @@ class GUIController:
             
             log_msg = f"模拟硬件已启动: 控制口={ctrl_port}, 遥测口={telem_port}"
             if self.disturbance_enabled_var.get():
-                log_msg += f", XY扰动={self.disturbance_amplitude_var.get()}mm@{self.disturbance_frequency_var.get()}Hz"
+                log_msg += f", XY扰动={self.disturbance_amplitude_var.get()}cm@{self.disturbance_frequency_var.get()}Hz"
             self.logger.info(log_msg)
             
         except Exception as e:
@@ -788,7 +788,7 @@ class GUIController:
         
         # 获取目标中心Z
         tgt = getattr(self.controller.control, '_target_center_z', None)
-        tgt_txt = f"{tgt:.0f}mm" if tgt is not None else "-"
+        tgt_txt = f"{tgt:.0f}cm" if tgt is not None else "-"
         
         # 获取固定的理论几何中心
         try:
@@ -807,8 +807,8 @@ class GUIController:
         # 更新中心信息显示
         self.center_info_label.config(
             text=f"目标中心Z：{tgt_txt}  |  "
-                 f"当前几何中心：X={current_cx:.1f}, Y={current_cy:.1f}, Z={current_cz:.1f}mm  |  "
-                 f"理论几何中心：X={theory_cx:.1f}, Y={theory_cy:.1f}, Z={theory_cz:.1f}mm"
+                 f"当前几何中心：X={current_cx:.1f}, Y={current_cy:.1f}, Z={current_cz:.1f}cm  |  "
+                 f"理论几何中心：X={theory_cx:.1f}, Y={theory_cy:.1f}, Z={theory_cz:.1f}cm"
         )
 
         # Z 柱状图 - 调整为小图显示
@@ -825,7 +825,7 @@ class GUIController:
 
         # XY坐标图（放大显示，占据上半部分）
         self.ax_xy.clear(); self.ax_xy.set_title("腿子XY坐标分布", fontsize=20)
-        self.ax_xy.set_xlabel("X (mm)", fontsize=12); self.ax_xy.set_ylabel("Y (mm)", fontsize=12)
+        self.ax_xy.set_xlabel("X (cm)", fontsize=12); self.ax_xy.set_ylabel("Y (cm)", fontsize=12)
         self.ax_xy.grid(True); self.ax_xy.set_aspect('equal')
         self.ax_xy.tick_params(axis='both', labelsize=12)
         
@@ -1039,9 +1039,9 @@ class GUIController:
             if self.normal_geometry is None:
                 self.normal_geometry = self.root.geometry()
             
-            # 设置全屏
+            # 设置全屏 - 不使用overrideredirect以保持任务栏可见性
             self.root.state('zoomed')  # Windows下的最大化
-            self.root.overrideredirect(True)  # 隐藏标题栏
+            self.root.attributes('-fullscreen', True)  # 使用-fullscreen属性
             
             # 隐藏滚动条
             self._hide_scrollbars()
@@ -1053,7 +1053,7 @@ class GUIController:
         """退出全屏模式"""
         if self.is_fullscreen:
             # 恢复窗口状态
-            self.root.overrideredirect(False)  # 恢复标题栏
+            self.root.attributes('-fullscreen', False)  # 退出全屏属性
             self.root.state('normal')
             
             # 恢复原始窗口大小
