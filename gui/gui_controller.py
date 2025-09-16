@@ -16,8 +16,9 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 DRAIN_INTERVAL_MS = 50  # 日志队列刷新周期
 
 class GUIController:
-    def __init__(self, root, controller):
-        self.root = root
+    def __init__(self, parent, controller):
+        self.parent = parent  # 可滚动的Frame
+        self.root = parent.winfo_toplevel()  # 获取顶层窗口
         self.controller = controller
         self.logger = controller.logger
         self.legs = controller.get_leg_data()
@@ -44,22 +45,16 @@ class GUIController:
         self.root.title("道岔腿子控制系统")
 
         # 顶部状态显示区域
-        top = tk.Frame(root); top.pack(fill=tk.X, pady=4)
+        top = tk.Frame(self.parent); top.pack(fill=tk.X, pady=4)
         self.status_label = tk.Label(top, text="运行状态：初始化完成", font=("黑体", 14))
         self.status_label.pack(side=tk.LEFT, padx=10)
         
         # 中心信息显示（合并所有中心信息）
         self.center_info_label = tk.Label(top, text="目标中心Z：-  实际中心：-  几何中心：-", font=("宋体", 20))
         self.center_info_label.pack(side=tk.RIGHT, padx=10)
-        
-        # 单腿控制按钮单独一行
-        single_leg_frame = tk.Frame(root)
-        single_leg_frame.pack(fill=tk.X, pady=4)
-        ttk.Button(single_leg_frame, text="单腿控制", command=self._open_single_leg_control, 
-                  style="ExtraLarge.TButton").pack(side=tk.RIGHT, padx=10)
 
         # 模拟硬件控制区域
-        hardware_frame = tk.Frame(root)
+        hardware_frame = tk.Frame(self.parent)
         hardware_frame.pack(fill=tk.X, pady=4)
         
         # 左侧：模拟硬件端口配置
@@ -103,6 +98,7 @@ class GUIController:
         # 配置按钮样式
         style = ttk.Style()
         style.configure("Large.TButton", font=("宋体", 13))
+        style.configure("Medium.TButton", font=("宋体", 16), padding=(10, 5))  # 中等大小，介于Large和ExtraLarge之间
         style.configure("Selected.TButton", font=("宋体", 13), background="lightgreen")
         style.configure("ExtraLarge.TButton", font=("宋体", 24), padding=(20, 10))
         
@@ -113,7 +109,7 @@ class GUIController:
         self.mock_device_status_label.pack(side=tk.LEFT, padx=10)
 
         # 控制区
-        ctr = tk.Frame(root); ctr.pack(fill=tk.X, pady=4)
+        ctr = tk.Frame(self.parent); ctr.pack(fill=tk.X, pady=4)
         tk.Label(ctr, text="控制周期(ms)：", font=("宋体", 13)).pack(side=tk.LEFT)
         self.period_var = tk.IntVar(value=500); tk.Entry(ctr, textvariable=self.period_var, width=6, font=("宋体", 12)).pack(side=tk.LEFT, padx=(0,10))
         tk.Label(ctr, text="中心下降速率(mm/s)：", font=("宋体", 13)).pack(side=tk.LEFT)
@@ -123,6 +119,10 @@ class GUIController:
         ttk.Button(ctr, text="急停", command=self._on_emergency, style="Large.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="重置", command=self._on_reset, style="Large.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(ctr, text="串口监视器", command=self._open_serial_monitor, style="Large.TButton").pack(side=tk.LEFT, padx=5)
+        
+        # 单腿控制按钮放在控制区右侧，使用稍大的样式
+        ttk.Button(ctr, text="单腿控制", command=self._open_single_leg_control, 
+                  style="Medium.TButton").pack(side=tk.RIGHT, padx=10)
 
         # 图表 - 调整布局让XY坐标图占据上半部分大面积
         fig = plt.figure(figsize=(14,10))
@@ -140,11 +140,11 @@ class GUIController:
         # 调整子图间距
         plt.tight_layout(pad=2.0)
         
-        self.canvas = FigureCanvasTkAgg(fig, master=root)
+        self.canvas = FigureCanvasTkAgg(fig, master=self.parent)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         # 底部三个板块横向排列
-        bottom_frame = tk.Frame(root)
+        bottom_frame = tk.Frame(self.parent)
         bottom_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         
         # 左侧：腿子坐标信息
@@ -266,7 +266,7 @@ class GUIController:
         # 创建单腿控制窗口
         self.single_leg_window = tk.Toplevel(self.root)
         self.single_leg_window.title("单腿控制")
-        self.single_leg_window.geometry("1200x800")
+        self.single_leg_window.geometry("1400x900")  # 增大窗口尺寸
         
         # 设置选中第一个腿子（默认腿子1）
         self.selected_leg_index = 0
@@ -316,8 +316,14 @@ class GUIController:
         # 右侧标题
         tk.Label(right_frame, text="单腿控制", font=("黑体", 20)).pack(pady=10)
         
+        # 腿子信息显示区域
+        self._create_leg_info_display(right_frame)
+        
         # 十字键控制区域
         self._create_cross_control(right_frame)
+        
+        # Z轴控制区域
+        self._create_z_control(right_frame)
         
         # 腿子选择按钮区域
         self._create_leg_selection(right_frame)
@@ -325,12 +331,33 @@ class GUIController:
         # 初始更新显示
         self._update_single_leg_display()
 
+    def _create_leg_info_display(self, parent):
+        """创建腿子信息显示区域"""
+        info_frame = tk.Frame(parent, relief=tk.RAISED, bd=2)
+        info_frame.pack(pady=10, fill=tk.X)
+        
+        tk.Label(info_frame, text="腿子状态信息", font=("黑体", 14)).pack(pady=5)
+        
+        # 位置信息
+        pos_frame = tk.Frame(info_frame)
+        pos_frame.pack(pady=5)
+        tk.Label(pos_frame, text="位置:", font=("宋体", 12)).pack(side=tk.LEFT)
+        self.leg_pos_label = tk.Label(pos_frame, text="(0, 0, 0)", font=("宋体", 12), fg="blue")
+        self.leg_pos_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 受力信息
+        force_frame = tk.Frame(info_frame)
+        force_frame.pack(pady=5)
+        tk.Label(force_frame, text="受力:", font=("宋体", 12)).pack(side=tk.LEFT)
+        self.leg_force_label = tk.Label(force_frame, text="0.0 N", font=("宋体", 12), fg="red")
+        self.leg_force_label.pack(side=tk.LEFT, padx=(5, 0))
+
     def _create_cross_control(self, parent):
         """创建十字键控制区域"""
         control_frame = tk.Frame(parent)
         control_frame.pack(pady=20)
         
-        tk.Label(control_frame, text="方向控制", font=("黑体", 16)).pack(pady=10)
+        tk.Label(control_frame, text="XY轴平面控制（±1mm）", font=("黑体", 16)).pack(pady=10)
         
         # 十字键布局框架
         cross_frame = tk.Frame(control_frame)
@@ -339,20 +366,39 @@ class GUIController:
         # 创建3x3网格布局
         # 第一行：空、上、空
         tk.Label(cross_frame, text="", width=8).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(cross_frame, text="↑\n上", command=lambda: self._move_leg('up'), style="Large.TButton", width=8).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(cross_frame, text="↑\n上(1mm)", command=lambda: self._move_leg('up'), style="Large.TButton", width=8).grid(row=0, column=1, padx=5, pady=5)
         tk.Label(cross_frame, text="", width=8).grid(row=0, column=2, padx=5, pady=5)
         
         # 第二行：左、中心显示、右
-        ttk.Button(cross_frame, text="←\n左", command=lambda: self._move_leg('left'), style="Large.TButton", width=8).grid(row=1, column=0, padx=5, pady=5)
+        ttk.Button(cross_frame, text="←\n左(1mm)", command=lambda: self._move_leg('left'), style="Large.TButton", width=8).grid(row=1, column=0, padx=5, pady=5)
         self.current_leg_label = tk.Label(cross_frame, text=f"腿子{self.selected_leg_index+1}", font=("黑体", 16), 
                                          bg="lightgray", width=8, height=3, relief=tk.RAISED)
         self.current_leg_label.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(cross_frame, text="→\n右", command=lambda: self._move_leg('right'), style="Large.TButton", width=8).grid(row=1, column=2, padx=5, pady=5)
+        ttk.Button(cross_frame, text="→\n右(1mm)", command=lambda: self._move_leg('right'), style="Large.TButton", width=8).grid(row=1, column=2, padx=5, pady=5)
         
         # 第三行：空、下、空
         tk.Label(cross_frame, text="", width=8).grid(row=2, column=0, padx=5, pady=5)
-        ttk.Button(cross_frame, text="↓\n下", command=lambda: self._move_leg('down'), style="Large.TButton", width=8).grid(row=2, column=1, padx=5, pady=5)
+        ttk.Button(cross_frame, text="↓\n下(1mm)", command=lambda: self._move_leg('down'), style="Large.TButton", width=8).grid(row=2, column=1, padx=5, pady=5)
         tk.Label(cross_frame, text="", width=8).grid(row=2, column=2, padx=5, pady=5)
+
+    def _create_z_control(self, parent):
+        """创建Z轴高度控制区域"""
+        z_control_frame = tk.Frame(parent)
+        z_control_frame.pack(pady=20)
+        
+        tk.Label(z_control_frame, text="Z轴高度控制", font=("黑体", 16)).pack(pady=10)
+        
+        # Z轴按钮布局
+        z_buttons_frame = tk.Frame(z_control_frame)
+        z_buttons_frame.pack(pady=10)
+        
+        # Z轴升高按钮
+        ttk.Button(z_buttons_frame, text="Z轴升高\n(+10mm)", command=lambda: self._move_leg('up_z'), 
+                  style="Large.TButton", width=12).pack(side=tk.LEFT, padx=5)
+        
+        # Z轴降低按钮
+        ttk.Button(z_buttons_frame, text="Z轴降低\n(-10mm)", command=lambda: self._move_leg('down_z'), 
+                  style="Large.TButton", width=12).pack(side=tk.LEFT, padx=5)
 
     def _create_leg_selection(self, parent):
         """创建腿子选择按钮区域"""
@@ -403,9 +449,27 @@ class GUIController:
 
     def _move_leg(self, direction):
         """移动选中的腿子"""
-        # 这里可以添加实际的腿子移动控制逻辑
         leg_num = self.selected_leg_index + 1
-        self.logger.info(f"移动腿子{leg_num}向{direction}")
+        
+        # 根据方向类型输出不同的日志信息
+        if direction in ['left', 'right', 'up', 'down']:
+            # XY轴控制
+            direction_map = {
+                'left': '左(-1mm X轴)',
+                'right': '右(+1mm X轴)', 
+                'up': '上(+1mm Y轴)',
+                'down': '下(-1mm Y轴)'
+            }
+            self.logger.info(f"XY轴控制：腿子{leg_num} {direction_map[direction]}")
+        elif direction in ['up_z', 'down_z']:
+            # Z轴控制
+            direction_map = {
+                'up_z': '升高(+10mm Z轴)',
+                'down_z': '降低(-10mm Z轴)'
+            }
+            self.logger.info(f"Z轴控制：腿子{leg_num} {direction_map[direction]}")
+        
+        # 这里可以添加实际的腿子移动控制逻辑
         
     def _update_single_leg_display(self):
         """更新单腿显示"""
@@ -414,7 +478,7 @@ class GUIController:
             
         # 清空并重绘单腿图表
         self.single_leg_ax.clear()
-        self.single_leg_ax.set_title(f"腿子{self.selected_leg_index+1}详细视图", fontsize=16)
+        # 移除标题，让图表更简洁
         
         # 获取选中腿子的数据
         try:
@@ -424,20 +488,25 @@ class GUIController:
             z_pos = getattr(leg, 'z', 0.0)
             force = getattr(leg, 'force', 0.0)
             
-            # 绘制腿子位置和状态信息
-            self.single_leg_ax.text(0.5, 0.8, f"位置: ({x_pos:.1f}, {y_pos:.1f}, {z_pos:.1f})", 
-                                  transform=self.single_leg_ax.transAxes, fontsize=14, ha='center')
-            self.single_leg_ax.text(0.5, 0.7, f"受力: {force:.1f} N", 
-                                  transform=self.single_leg_ax.transAxes, fontsize=14, ha='center')
+            # 更新右侧信息面板
+            if hasattr(self, 'leg_pos_label'):
+                self.leg_pos_label.config(text=f"({x_pos:.1f}, {y_pos:.1f}, {z_pos:.1f})")
+            if hasattr(self, 'leg_force_label'):
+                self.leg_force_label.config(text=f"{force:.1f} N")
             
-            # 简单的腿子图形表示
+            # 简单的腿子图形表示（只显示图形，不显示文字信息）
             self.single_leg_ax.scatter([0], [0], c='green' if self.leg_colors[self.selected_leg_index] == 'green' else 'red', 
-                                     s=500, marker='o', edgecolors='black', linewidth=2)
-            self.single_leg_ax.text(0, -0.1, f"腿子{self.selected_leg_index+1}", ha='center', fontsize=16, fontweight='bold')
+                                     s=800, marker='o', edgecolors='black', linewidth=3)
+            self.single_leg_ax.text(0, -0.15, f"腿子{self.selected_leg_index+1}", ha='center', fontsize=20, fontweight='bold')
             
             self.single_leg_ax.set_xlim(-1, 1)
             self.single_leg_ax.set_ylim(-1, 1)
             self.single_leg_ax.set_aspect('equal')
+            self.single_leg_ax.axis('off')  # 隐藏坐标轴，使图形更简洁
+            
+        except Exception as e:
+            self.single_leg_ax.text(0.5, 0.5, f"数据加载错误: {e}", 
+                                  transform=self.single_leg_ax.transAxes, fontsize=12, ha='center')
             
         except Exception as e:
             self.single_leg_ax.text(0.5, 0.5, f"数据加载错误: {e}", 
@@ -914,5 +983,57 @@ class GUIController:
 
 def start_gui(controller):
     root = tk.Tk()
-    app = GUIController(root, controller)
+    
+    # 设置窗口初始大小
+    root.geometry("1200x800")
+    
+    # 创建主Canvas和滚动条
+    main_canvas = tk.Canvas(root)
+    scrollbar_y = ttk.Scrollbar(root, orient="vertical", command=main_canvas.yview)
+    scrollbar_x = ttk.Scrollbar(root, orient="horizontal", command=main_canvas.xview)
+    
+    # 创建可滚动的Frame
+    scrollable_frame = tk.Frame(main_canvas)
+    
+    # 配置Canvas
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+    )
+    
+    # 将Frame添加到Canvas
+    canvas_frame = main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    
+    # 配置Canvas滚动
+    main_canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+    
+    # 布局Canvas和滚动条
+    main_canvas.pack(side="left", fill="both", expand=True)
+    scrollbar_y.pack(side="right", fill="y")
+    scrollbar_x.pack(side="bottom", fill="x")
+    
+    # 绑定鼠标滚轮事件
+    def _on_mousewheel(event):
+        main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+    
+    def _on_shift_mousewheel(event):
+        main_canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+    
+    # 绑定滚轮事件
+    main_canvas.bind("<MouseWheel>", _on_mousewheel)
+    main_canvas.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+    
+    # 动态调整Canvas内Frame的宽度
+    def _configure_canvas_frame(event):
+        canvas_width = event.width
+        main_canvas.itemconfig(canvas_frame, width=canvas_width)
+    
+    main_canvas.bind('<Configure>', _configure_canvas_frame)
+    
+    # 创建GUI控制器，传入scrollable_frame而不是root
+    app = GUIController(scrollable_frame, controller)
+    
+    # 确保焦点在Canvas上以支持键盘滚动
+    main_canvas.focus_set()
+    
     root.mainloop()
