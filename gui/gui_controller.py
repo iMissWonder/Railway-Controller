@@ -9,6 +9,7 @@ import threading
 import subprocess
 import sys
 import os
+from PIL import Image, ImageTk
 
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']
 matplotlib.rcParams['axes.unicode_minus'] = False
@@ -33,6 +34,15 @@ class GUIController:
         self.single_leg_window = None
         self.selected_leg_index = 0  # 默认选择腿子1（索引0）
         self.leg_colors = ['red'] * 12  # 所有腿子初始为红色
+        
+        # GIF动画相关变量
+        self.gif_frames = {}  # 存储每个腿子的GIF帧
+        self.gif_label = None  # GIF显示标签
+        self.current_gif_frames = []  # 当前显示的GIF帧
+        self.gif_frame_index = 0  # 当前帧索引
+        self.gif_animation_id = None  # 动画定时器ID
+        self.gif_playing = False  # 是否正在播放GIF
+        self.gif_has_played = False  # 是否已经播放过动画
         
         # 受力模拟相关变量
         import time
@@ -319,21 +329,19 @@ class GUIController:
         main_frame = tk.Frame(self.single_leg_window)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # 左侧60%区域：单腿子模型展示
+        # 左侧60%区域：GIF动画展示
         left_frame = tk.Frame(main_frame)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         left_frame.config(width=int(1200*0.6))
         
         # 左侧标题
-        tk.Label(left_frame, text="单腿子模型展示", font=("黑体", 20)).pack(pady=10)
+        tk.Label(left_frame, text="腿子运动演示", font=("黑体", 20)).pack(pady=10)
         
-        # 创建单腿图表
-        self.single_leg_fig = plt.figure(figsize=(8, 10))
-        
-        # 单个腿子的详细视图
-        self.single_leg_ax = self.single_leg_fig.add_subplot(111)
-        self.single_leg_canvas = FigureCanvasTkAgg(self.single_leg_fig, master=left_frame)
-        self.single_leg_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        # 创建GIF显示标签
+        self.gif_label = tk.Label(left_frame, text="选择腿子并执行运动\n以查看动画演示", 
+                                 font=("宋体", 16), fg="gray", 
+                                 width=60, height=25, relief=tk.SUNKEN, bd=2)
+        self.gif_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # 右侧40%区域：控制布局
         right_frame = tk.Frame(main_frame)
@@ -356,7 +364,10 @@ class GUIController:
         self._create_leg_selection(right_frame)
         
         # 初始更新显示
-        self._update_single_leg_display()
+        self._update_leg_info_display()
+        
+        # 默认显示腿子1的GIF第一帧
+        self._show_gif_first_frame(0)
 
     def _create_leg_info_display(self, parent):
         """创建腿子信息显示区域"""
@@ -384,7 +395,7 @@ class GUIController:
         control_frame = tk.Frame(parent)
         control_frame.pack(pady=20)
         
-        tk.Label(control_frame, text="XY轴平面控制（±1mm）", font=("黑体", 16)).pack(pady=10)
+        tk.Label(control_frame, text="XY轴平面控制（±0.1cm）", font=("黑体", 16)).pack(pady=10)
         
         # 十字键布局框架
         cross_frame = tk.Frame(control_frame)
@@ -393,19 +404,19 @@ class GUIController:
         # 创建3x3网格布局
         # 第一行：空、上、空
         tk.Label(cross_frame, text="", width=8).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(cross_frame, text="↑\n上(1mm)", command=lambda: self._move_leg('up'), style="Large.TButton", width=8).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(cross_frame, text="↑\n上(0.1cm)", command=lambda: self._move_leg('up'), style="Large.TButton", width=8).grid(row=0, column=1, padx=5, pady=5)
         tk.Label(cross_frame, text="", width=8).grid(row=0, column=2, padx=5, pady=5)
         
         # 第二行：左、中心显示、右
-        ttk.Button(cross_frame, text="←\n左(1mm)", command=lambda: self._move_leg('left'), style="Large.TButton", width=8).grid(row=1, column=0, padx=5, pady=5)
+        ttk.Button(cross_frame, text="←\n左(0.1cm)", command=lambda: self._move_leg('left'), style="Large.TButton", width=8).grid(row=1, column=0, padx=5, pady=5)
         self.current_leg_label = tk.Label(cross_frame, text=f"腿子{self.selected_leg_index+1}", font=("黑体", 16), 
                                          bg="lightgray", width=8, height=3, relief=tk.RAISED)
         self.current_leg_label.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(cross_frame, text="→\n右(1mm)", command=lambda: self._move_leg('right'), style="Large.TButton", width=8).grid(row=1, column=2, padx=5, pady=5)
+        ttk.Button(cross_frame, text="→\n右(0.1cm)", command=lambda: self._move_leg('right'), style="Large.TButton", width=8).grid(row=1, column=2, padx=5, pady=5)
         
         # 第三行：空、下、空
         tk.Label(cross_frame, text="", width=8).grid(row=2, column=0, padx=5, pady=5)
-        ttk.Button(cross_frame, text="↓\n下(1mm)", command=lambda: self._move_leg('down'), style="Large.TButton", width=8).grid(row=2, column=1, padx=5, pady=5)
+        ttk.Button(cross_frame, text="↓\n下(0.1cm)", command=lambda: self._move_leg('down'), style="Large.TButton", width=8).grid(row=2, column=1, padx=5, pady=5)
         tk.Label(cross_frame, text="", width=8).grid(row=2, column=2, padx=5, pady=5)
 
     def _create_z_control(self, parent):
@@ -420,11 +431,11 @@ class GUIController:
         z_buttons_frame.pack(pady=10)
         
         # Z轴升高按钮
-        ttk.Button(z_buttons_frame, text="Z轴升高\n(+10mm)", command=lambda: self._move_leg('up_z'), 
+        ttk.Button(z_buttons_frame, text="Z轴升高\n(+1.0cm)", command=lambda: self._move_leg('up_z'), 
                   style="Large.TButton", width=12).pack(side=tk.LEFT, padx=5)
         
         # Z轴降低按钮
-        ttk.Button(z_buttons_frame, text="Z轴降低\n(-10mm)", command=lambda: self._move_leg('down_z'), 
+        ttk.Button(z_buttons_frame, text="Z轴降低\n(-1.0cm)", command=lambda: self._move_leg('down_z'), 
                   style="Large.TButton", width=12).pack(side=tk.LEFT, padx=5)
 
     def _create_leg_selection(self, parent):
@@ -460,11 +471,17 @@ class GUIController:
         self.selected_leg_index = leg_index
         self.leg_colors[leg_index] = 'green'
         
+        # 重置GIF播放状态，允许新腿子播放动画
+        self.gif_has_played = False
+        
         # 更新界面显示
         self.current_leg_label.config(text=f"腿子{leg_index+1}")
         self._update_leg_buttons()
-        self._update_single_leg_display()
+        self._update_leg_info_display()
         self._update_main_display()
+        
+        # 显示选中腿子对应的GIF第一帧
+        self._show_gif_first_frame(leg_index)
 
     def _update_leg_buttons(self):
         """更新腿子选择按钮的状态"""
@@ -477,36 +494,93 @@ class GUIController:
     def _move_leg(self, direction):
         """移动选中的腿子"""
         leg_num = self.selected_leg_index + 1
+        leg = self.legs[self.selected_leg_index]
         
-        # 根据方向类型输出不同的日志信息
-        if direction in ['left', 'right', 'up', 'down']:
-            # XY轴控制
-            direction_map = {
-                'left': '左(-1mm X轴)',
-                'right': '右(+1mm X轴)', 
-                'up': '上(+1mm Y轴)',
-                'down': '下(-1mm Y轴)'
-            }
-            self.logger.info(f"XY轴控制：腿子{leg_num} {direction_map[direction]}")
-        elif direction in ['up_z', 'down_z']:
-            # Z轴控制
-            direction_map = {
-                'up_z': '升高(+10mm Z轴)',
-                'down_z': '降低(-10mm Z轴)'
-            }
-            self.logger.info(f"Z轴控制：腿子{leg_num} {direction_map[direction]}")
+        # 移动步长（单位：cm）
+        xy_step = 0.1  # XY轴移动0.1cm
+        z_step = 1.0   # Z轴移动1.0cm
         
-        # 这里可以添加实际的腿子移动控制逻辑
+        # 记录移动前的坐标
+        old_x, old_y, old_z = leg.x, leg.y, leg.z
         
-    def _update_single_leg_display(self):
-        """更新单腿显示"""
-        if not hasattr(self, 'single_leg_ax'):
+        # 根据方向更新坐标
+        if direction == 'left':
+            leg.x -= xy_step
+            direction_str = f'左(-{xy_step}cm X轴)'
+        elif direction == 'right':
+            leg.x += xy_step
+            direction_str = f'右(+{xy_step}cm X轴)'
+        elif direction == 'up':
+            leg.y += xy_step
+            direction_str = f'上(+{xy_step}cm Y轴)'
+        elif direction == 'down':
+            leg.y -= xy_step
+            direction_str = f'下(-{xy_step}cm Y轴)'
+        elif direction == 'up_z':
+            leg.z += z_step
+            direction_str = f'升高(+{z_step}cm Z轴)'
+        elif direction == 'down_z':
+            leg.z -= z_step
+            direction_str = f'降低(-{z_step}cm Z轴)'
+        else:
             return
-            
-        # 清空并重绘单腿图表
-        self.single_leg_ax.clear()
-        # 移除标题，让图表更简洁
         
+        # 记录移动后的坐标
+        new_x, new_y, new_z = leg.x, leg.y, leg.z
+        
+        # 输出日志
+        if direction in ['left', 'right', 'up', 'down']:
+            self.logger.info(f"XY轴控制：腿子{leg_num} {direction_str}")
+        else:
+            self.logger.info(f"Z轴控制：腿子{leg_num} {direction_str}")
+            
+        self.logger.info(f"腿子{leg_num}坐标更新: ({old_x:.1f},{old_y:.1f},{old_z:.1f}) → ({new_x:.1f},{new_y:.1f},{new_z:.1f}) cm")
+        
+        # 通过控制器发送位置命令到模拟硬件
+        try:
+            if hasattr(self.controller, 'driver') and self.controller.driver:
+                # 计算移动增量（单位转换：cm转换为mm）
+                if direction == 'left':
+                    dx_mm, dy_mm, dz_mm = -xy_step * 10, 0, 0
+                elif direction == 'right':
+                    dx_mm, dy_mm, dz_mm = xy_step * 10, 0, 0
+                elif direction == 'up':
+                    dx_mm, dy_mm, dz_mm = 0, xy_step * 10, 0
+                elif direction == 'down':
+                    dx_mm, dy_mm, dz_mm = 0, -xy_step * 10, 0
+                elif direction == 'up_z':
+                    dx_mm, dy_mm, dz_mm = 0, 0, -z_step * 10  # Z轴增量，负值表示上升
+                elif direction == 'down_z':
+                    dx_mm, dy_mm, dz_mm = 0, 0, z_step * 10   # Z轴增量，正值表示下降
+                
+                # 发送相对移动命令到硬件驱动（腿子ID从1开始）
+                success = self.controller.driver.move_leg_delta(leg_num, dz_mm, dx_mm, dy_mm)
+                if success:
+                    self.logger.debug(f"已发送腿子{leg_num}相对移动命令: Δx={dx_mm:.1f}mm, Δy={dy_mm:.1f}mm, Δz={dz_mm:.1f}mm")
+                else:
+                    self.logger.error(f"发送腿子{leg_num}相对移动命令失败")
+        except Exception as e:
+            self.logger.error(f"发送腿子{leg_num}位置命令失败: {e}")
+        
+        # 更新GUI显示
+        self._update_leg_info_display()
+        self._update_main_display()
+        
+        # 根据选中的腿子触发对应的GIF动画（只有前6个腿子有对应动画）
+        # 仅在第一次点击移动按钮时播放动画
+        if self.selected_leg_index < 6 and not self.gif_has_played:
+            self._start_gif_animation(self.selected_leg_index)
+            self.gif_has_played = True
+        
+        # 如果控制循环正在运行，通知控制系统重新计算
+        try:
+            if hasattr(self.controller, 'control') and self.controller.control.is_running():
+                self.controller.control.notify_leg_position_changed(self.selected_leg_index)
+        except Exception as e:
+            self.logger.debug(f"通知控制系统腿子位置变更失败: {e}")
+        
+    def _update_leg_info_display(self):
+        """更新腿子信息显示"""
         # 获取选中腿子的数据
         try:
             leg = self.legs[self.selected_leg_index]
@@ -515,37 +589,142 @@ class GUIController:
             z_pos = getattr(leg, 'z', 0.0)
             force = getattr(leg, 'force', 0.0)
             
-            # 更新右侧信息面板
+            # 更新右侧信息面板（显示cm单位）
             if hasattr(self, 'leg_pos_label'):
-                self.leg_pos_label.config(text=f"({x_pos:.1f}, {y_pos:.1f}, {z_pos:.1f})")
+                self.leg_pos_label.config(text=f"({x_pos:.1f}, {y_pos:.1f}, {z_pos:.1f}) cm")
             if hasattr(self, 'leg_force_label'):
                 self.leg_force_label.config(text=f"{force:.1f} N")
-            
-            # 简单的腿子图形表示（只显示图形，不显示文字信息）
-            self.single_leg_ax.scatter([0], [0], c='green' if self.leg_colors[self.selected_leg_index] == 'green' else 'red', 
-                                     s=800, marker='o', edgecolors='black', linewidth=3)
-            self.single_leg_ax.text(0, -0.15, f"腿子{self.selected_leg_index+1}", ha='center', fontsize=20, fontweight='bold')
-            
-            self.single_leg_ax.set_xlim(-1, 1)
-            self.single_leg_ax.set_ylim(-1, 1)
-            self.single_leg_ax.set_aspect('equal')
-            self.single_leg_ax.axis('off')  # 隐藏坐标轴，使图形更简洁
-            
+                
         except Exception as e:
-            self.single_leg_ax.text(0.5, 0.5, f"数据加载错误: {e}", 
-                                  transform=self.single_leg_ax.transAxes, fontsize=12, ha='center')
-            
-        except Exception as e:
-            self.single_leg_ax.text(0.5, 0.5, f"数据加载错误: {e}", 
-                                  transform=self.single_leg_ax.transAxes, fontsize=12, ha='center')
-        
-        self.single_leg_canvas.draw()
+            if hasattr(self, 'leg_pos_label'):
+                self.leg_pos_label.config(text=f"数据加载错误: {e}")
+            if hasattr(self, 'leg_force_label'):
+                self.leg_force_label.config(text="0.0 N")
 
     def _update_main_display(self):
         """更新主界面显示"""
         # 触发主界面的刷新，以显示腿子颜色变化
         if hasattr(self, '_refresh'):
             self._refresh()
+
+    def _load_gif_frames(self, leg_index):
+        """加载指定腿子的GIF帧"""
+        if leg_index in self.gif_frames:
+            return self.gif_frames[leg_index]
+        
+        # GIF文件路径映射
+        gif_files = {
+            0: "1.Z轴降低100mm.gif",  # 腿子1
+            1: "2.Z轴升高50mm.gif",   # 腿子2
+            2: "3.X轴正方向5mm.gif",  # 腿子3
+            3: "4.X轴负方向10mm.gif", # 腿子4
+            4: "5.Y轴负方向5mm.gif",  # 腿子5
+            5: "6.Y轴正方向15mm.gif", # 腿子6
+        }
+        
+        if leg_index not in gif_files:
+            return []
+        
+        try:
+            gif_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                   "gif", gif_files[leg_index])
+            
+            if not os.path.exists(gif_path):
+                self.logger.warning(f"GIF文件不存在: {gif_path}")
+                return []
+            
+            # 加载GIF的所有帧
+            frames = []
+            gif = Image.open(gif_path)
+            
+            try:
+                while True:
+                    # 保持原始宽高比调整图片大小
+                    frame = gif.copy()
+                    
+                    # 获取原始尺寸
+                    original_width, original_height = frame.size
+                    
+                    # 定义最大显示尺寸
+                    max_width, max_height = 600, 400
+                    
+                    # 计算缩放比例，保持宽高比
+                    scale_w = max_width / original_width
+                    scale_h = max_height / original_height
+                    scale = min(scale_w, scale_h)
+                    
+                    # 计算新的尺寸
+                    new_width = int(original_width * scale)
+                    new_height = int(original_height * scale)
+                    
+                    frame = frame.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(frame)
+                    frames.append(photo)
+                    gif.seek(len(frames))  # 移动到下一帧
+            except EOFError:
+                pass  # 到达GIF末尾
+            
+            self.gif_frames[leg_index] = frames
+            return frames
+            
+        except Exception as e:
+            self.logger.error(f"加载腿子{leg_index+1}的GIF失败: {e}")
+            return []
+
+    def _start_gif_animation(self, leg_index):
+        """开始播放GIF动画"""
+        if leg_index > 5:  # 只有腿子1-6有对应的GIF
+            return
+            
+        self._stop_gif_animation()  # 停止当前动画
+        
+        frames = self._load_gif_frames(leg_index)
+        if not frames:
+            return
+        
+        self.current_gif_frames = frames
+        self.gif_frame_index = 0
+        self.gif_playing = True
+        
+        self._animate_gif()
+
+    def _animate_gif(self):
+        """执行GIF动画播放"""
+        if not self.gif_playing or not self.current_gif_frames or not self.gif_label:
+            return
+        
+        if self.gif_frame_index < len(self.current_gif_frames):
+            # 显示当前帧
+            self.gif_label.config(image=self.current_gif_frames[self.gif_frame_index])
+            self.gif_frame_index += 1
+            
+            # 缓慢播放：每帧间隔200ms
+            self.gif_animation_id = self.root.after(200, self._animate_gif)
+        else:
+            # 动画播放完毕，停留在最后一帧
+            self.gif_playing = False
+
+    def _show_gif_first_frame(self, leg_index):
+        """显示GIF的第一帧"""
+        if leg_index > 5:  # 只有腿子1-6有对应的GIF
+            return
+            
+        self._stop_gif_animation()  # 停止当前动画
+        
+        frames = self._load_gif_frames(leg_index)
+        if not frames:
+            return
+        
+        # 显示第一帧
+        self.gif_label.config(image=frames[0])
+        self.current_gif_frames = frames
+
+    def _stop_gif_animation(self):
+        """停止GIF动画"""
+        if self.gif_animation_id:
+            self.root.after_cancel(self.gif_animation_id)
+            self.gif_animation_id = None
+        self.gif_playing = False
 
     def _open_serial_monitor(self):
         """打开串口监视器窗口"""
