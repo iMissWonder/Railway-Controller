@@ -1,0 +1,21 @@
+# Railway Controller Dependencies
+# 道岔腿子控制系统依赖包
+
+# Core GUI Framework
+tkinter  # Python内置，通常无需单独安装
+
+# Data Visualization & Scientific Computing
+matplotlib>=3.5.0
+numpy>=1.21.0
+
+# Image Processing & GIF Animation Support  
+pillow>=9.0.0
+
+# Serial Communication
+pyserial>=3.5
+
+# Threading Support (Python内置)
+# threading
+
+# Standard Library Modules (Python内置)
+# os, sys, time, logging, argparse, json
